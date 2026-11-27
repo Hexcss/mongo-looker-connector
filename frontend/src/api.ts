@@ -13,7 +13,11 @@ export async function api(path: string, method = 'GET', body?: string, signal?: 
   if (!response.ok) {
     const failure = await response.json().catch(() => null);
     const message = failure?.error?.message;
-    throw new Error(typeof message === 'string' ? message : 'The gateway returned HTTP ' + response.status + '.');
+    if (typeof message === 'string') throw new Error(message);
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(`Console access was denied (HTTP ${response.status}). Open a fresh console sign-in link with your allowlisted Google account and retry.`);
+    }
+    throw new Error('The gateway returned HTTP ' + response.status + '.');
   }
   return response;
 }
