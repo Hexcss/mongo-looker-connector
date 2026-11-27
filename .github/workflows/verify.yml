@@ -1,0 +1,64 @@
+name: Verify
+
+on:
+  pull_request:
+    branches: [develop, staging, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Check promotion path
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+          BASE_BRANCH: ${{ github.base_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          case "$BASE_BRANCH" in
+            develop) [[ "$HEAD_BRANCH" =~ ^(feat|fix|chore|opti|sec)/.+$ ]] ;;
+            staging) [[ "$HEAD_BRANCH" == develop && "$HEAD_REPO" == "$GITHUB_REPOSITORY" ]] ;;
+            master)  [[ "$HEAD_BRANCH" == staging && "$HEAD_REPO" == "$GITHUB_REPOSITORY" ]] ;;
+            *) exit 1 ;;
+          esac
+      - name: Check release metadata
+        run: |
+          grep -Ex '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' VERSION
+          git diff --check
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        if: hashFiles('go.mod') != ''
+        with:
+          go-version-file: go.mod
+      - name: Verify gateway
+        if: hashFiles('go.mod') != ''
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race ./...
+      - name: Build and exercise the Docker gateway
+        if: hashFiles('compose.yaml') != ''
+        run: ./tests/smoke-local.sh
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        if: hashFiles('deploy/terraform/**/*.tf') != ''
+        with:
+          terraform_version: 1.17.2
+          terraform_wrapper: false
+      - name: Validate Terraform roots
+        if: hashFiles('deploy/terraform/**/*.tf') != ''
+        run: |
+          terraform fmt -check -recursive deploy/terraform
+          mapfile -t locks < <(git ls-files 'deploy/terraform/**/.terraform.lock.hcl')
+          (( ${#locks[@]} > 0 ))
+          for lock in "${locks[@]}"; do
+            root=$(dirname "$lock")
+            terraform -chdir="$root" init -backend=false -input=false -lockfile=readonly
+            terraform -chdir="$root" validate
+          done
