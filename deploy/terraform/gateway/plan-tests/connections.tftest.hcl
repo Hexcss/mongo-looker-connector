@@ -22,6 +22,8 @@ run "demo_without_secrets" {
   assert {
     condition = (
       length(google_project_service.secret_manager) == 0 &&
+      length(google_project_iam_custom_role.report_quota) == 0 &&
+      length(google_project_iam_binding.report_quota) == 0 &&
       length(google_secret_manager_secret_iam_member.reader) == 0 &&
       { for e in google_cloud_run_v2_service.gateway.template[0].containers[0].env : e.name => e.value } == {
         MONGODB_URI         = "mongodb://fixture.example/mlc-sandbox"
@@ -155,6 +157,9 @@ run "reporting_transport" {
   assert {
     condition = (
       google_service_account.reporting[0].account_id == "mlc-reporting" &&
+      google_project_iam_custom_role.report_quota[0].permissions == toset(["serviceusage.services.use"]) &&
+      google_project_iam_binding.report_quota[0].members == var.report_members &&
+      google_project_iam_binding.report_quota[0].project == var.project_id &&
       google_service_account_iam_binding.report_login[0].members == var.report_members &&
       google_service_account_iam_binding.report_login[0].role == "roles/iam.serviceAccountOpenIdTokenCreator" &&
       google_cloud_run_v2_service_iam_member.report_invoker[0].role == "roles/run.invoker" &&
