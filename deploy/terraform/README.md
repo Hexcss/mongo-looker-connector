@@ -111,6 +111,24 @@ Open the single-use loopback sign-in URL printed in your terminal. It opens `/ad
 
 With administration enabled, Cloud Run invoker IAM is the first authorization check. Reporting clients also need the scoped token issued by a console administrator. Send the Cloud Run ID token in `X-Serverless-Authorization: Bearer <cloud-run-id-token>` and the reporting token in `Authorization: Bearer <reporting-token>` or `X-MLC-Token: <reporting-token>`. For administrator requests the launcher supplies `X-MLC-Admin-Assertion` with a Google-signed ID token for the login identity and this deployment's audience. [Cloud Run authentication headers](https://cloud.google.com/run/docs/authenticating/service-to-service) · [Generate an ID token](https://cloud.google.com/iam/docs/reference/credentials/rest/v1/projects.serviceAccounts/generateIdToken)
 
+## Deploy the hosted console and Looker Studio transport
+
+Use a v0.3-compatible gateway image for both services. Keep the existing private gateway, image digest, invokers, and administrator settings in scope for every apply and drift check. On the gateway stack, enable `hosted_console` to provision `mlc-console`. Set `report_members` to the Google users who can authorize the Apps Script connector. The two features can be enabled independently.
+
+```bash
+export TF_VAR_hosted_console=true
+export TF_VAR_report_members='["user:analyst@example.org"]'
+"$tf" -chdir="$stacks/gateway" plan -out=gateway.tfplan
+"$tf" -chdir="$stacks/gateway" apply gateway.tfplan
+"$tf" -chdir="$stacks/gateway" output -raw hosted_console_url
+"$tf" -chdir="$stacks/gateway" output -raw reporting_service_account
+deploy/sandbox/drift
+```
+
+The public HTTPS address serves the browser login flow. Its runtime identity, `mlc-console-web`, can invoke the private gateway. The gateway authorizes administrative actions and checks login expiration on redemption. Firestore TTL subsequently removes expired records from the `hostedLogins` collection in the existing metadata database. Allowlisted administrators can discover the hosted service URL with the same service-level read permission used by the launcher. [Firestore TTL](https://cloud.google.com/firestore/docs/ttl)
+
+The Apps Script connector mints a Google ID token for the dedicated `mlc-reporting` identity using the report creator's Google account. Terraform grants each listed user `roles/iam.serviceAccountOpenIdTokenCreator` on that identity and grants the identity `roles/run.invoker` on the private gateway. The connector sends the sandbox project as the quota project on its IAM Credentials request. The custom project role `mlcReportingQuota` grants each reporting user the single permission `serviceusage.services.use` needed for that attribution. Reports require a separate reporting token with an explicit collection grant. Removing a creator from `report_members` prevents new identity tokens once IAM propagates. Revoke the reporting token in the admin console to stop its use on the next request. [Google IAM Credentials API](https://cloud.google.com/iam/docs/reference/credentials/rest/v1/projects.serviceAccounts/generateIdToken)
+
 ## Use existing MongoDB connections
 
 To expose your own databases, put each complete, read-only MongoDB URI in an existing Secret Manager secret in the gateway's project. Choose a version that is enabled. Ensure the deployment operator can enable the Secret Manager API and update each secret's IAM policy. The MongoDB endpoint must accept connections from Cloud Run and the database credential must be able to discover and read the selected collections.

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.3.0) · 2026-11-27
+
+- Serve the admin console at a permanent HTTPS address with short-lived, single-use sign-in and a secure browser session.
+- Connect Looker Studio to a private gateway with a scoped reporting credential and a dedicated Google reporting identity.
+- Filter reports by inclusive UTC calendar dates on a BSON date field and test the result against dated sandbox orders.
+
 ## [0.2.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.2.0) · 2026-11-27
 
 - Add a private administration console for managing connections, rotating credentials, and previewing up to 50 aggregation rows.

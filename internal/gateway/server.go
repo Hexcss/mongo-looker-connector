@@ -156,37 +156,54 @@ type reportRequest struct {
 	collection string
 	pipeline   json.RawMessage
 	fields     []string
+	dateRange  *engine.DateRange
 }
 
 // Decode the envelope separately from the pipeline. Each key must appear
 // exactly once at most, with its documented case and a non-null value.
 func parseReport(body []byte) (reportRequest, error) {
 	var req reportRequest
+	var rawDates json.RawMessage
 	fields := map[string]any{
 		"connectionId": &req.connection, "database": &req.database, "collection": &req.collection,
-		"pipeline": &req.pipeline, "fields": &req.fields,
+		"pipeline": &req.pipeline, "fields": &req.fields, "dateRange": &rawDates,
 	}
-	dec := json.NewDecoder(bytes.NewReader(body))
-	if open, err := dec.Token(); err != nil || open != json.Delim('{') || !utf8.Valid(body) {
-		return req, engine.ErrInvalid
+	if err := decodeReportObject(body, fields); err != nil {
+		return req, err
 	}
-	for dec.More() {
-		rawKey, err := dec.Token()
-		key, ok := rawKey.(string)
-		dest := fields[key]
-		if err != nil || !ok || dest == nil || dec.Decode(dest) != nil {
+	if rawDates != nil {
+		dates := new(engine.DateRange)
+		keys := map[string]any{"field": &dates.Field, "startDate": &dates.StartDate, "endDate": &dates.EndDate}
+		if err := decodeReportObject(rawDates, keys); err != nil || len(keys) != 0 {
 			return req, engine.ErrInvalid
 		}
-		delete(fields, key)
-	}
-	if closeToken, err := dec.Token(); err != nil || closeToken != json.Delim('}') || dec.Decode(new(any)) != io.EOF {
-		return req, engine.ErrInvalid
+		req.dateRange = dates
 	}
 	if !connectionID.MatchString(req.connection) || !validName(req.database) || !validName(req.collection) ||
 		(fields["fields"] == nil && req.fields == nil) || (len(req.pipeline) > 0 && req.pipeline[0] != '[') {
 		return req, engine.ErrInvalid
 	}
 	return req, nil
+}
+
+func decodeReportObject(body []byte, fields map[string]any) error {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if open, err := dec.Token(); err != nil || open != json.Delim('{') || !utf8.Valid(body) {
+		return engine.ErrInvalid
+	}
+	for dec.More() {
+		rawKey, err := dec.Token()
+		key, ok := rawKey.(string)
+		dest := fields[key]
+		if err != nil || !ok || dest == nil || dec.Decode(dest) != nil {
+			return engine.ErrInvalid
+		}
+		delete(fields, key)
+	}
+	if closeToken, err := dec.Token(); err != nil || closeToken != json.Delim('}') || dec.Decode(new(any)) != io.EOF {
+		return engine.ErrInvalid
+	}
+	return nil
 }
 
 func (s *Server) report(w http.ResponseWriter, r *http.Request) {
@@ -206,7 +223,7 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req, err := parseReport(body)
-	if err != nil {
+	if err != nil || (req.dateRange != nil && r.Pattern != "POST /api/v1/query") {
 		invalidRequest(w)
 		return
 	}
@@ -228,11 +245,12 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		reply(w, http.StatusOK, map[string][]engine.Field{"fields": fields})
 		return
 	}
-	run := engine.Query
+	var result engine.Result
 	if r.Pattern == "POST /api/v1/admin/preview" {
-		run = engine.Preview
+		result, err = engine.Preview(ctx, coll, req.pipeline, req.fields)
+	} else {
+		result, err = engine.Query(ctx, coll, req.pipeline, req.fields, req.dateRange)
 	}
-	result, err := run(ctx, coll, req.pipeline, req.fields)
 	if err != nil {
 		operationError(w, ctx, err)
 		return

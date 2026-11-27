@@ -2,7 +2,17 @@
 
 The console runs inside the gateway image. In the sandbox, Google Cloud IAM authenticates the caller before the request reaches Cloud Run. Console actions additionally require a Google-signed assertion for this deployment. Only the configured administrators receive permission to mint it.
 
-## Open the console
+## Open the hosted console
+
+Enable `hosted_console` in the gateway Terraform stack to deploy a separate HTTPS browser service. Its stable address is the `hosted_console_url` output. Bookmark that address to return to an active session. To sign in from your workstation, run the following once with an allowlisted gcloud account.
+
+```sh
+PROJECT_ID=your-project-id OPERATOR_ACCOUNT=your-account python3 deploy/sandbox/hosted_console.py
+```
+
+The helper opens the hosted site in your browser and exits. To use another browser, add `--print-url` and open the single-use link within five minutes. Treat that link as a credential. The private gateway stores hashes of the ticket and session, validates the session when serving requests, and retains control of administration and reporting. Return to the hosted site root to sign out. If you receive an HTTP 401 or 403, mint a fresh sign-in link using the account in the administrator allowlist.
+
+## Open the console through loopback
 
 Sign in to gcloud with an account listed in the deployment's `admin_members`. From a checkout of the release, run the launcher and open the single-use address it prints.
 

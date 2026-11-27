@@ -6,7 +6,7 @@ The first milestone proves that a company can query its own MongoDB data through
 | --- | --- | --- |
 | **v0.1 · Core gateway** | [v0.1.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.1.0) | A Docker deployment discovers collections, infers schema, and returns expected aggregation results against both MongoDB and the Firestore Enterprise sandbox. |
 | **v0.2 · Administration console** | [v0.2.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.2.0) | An allowlisted administrator can configure connections, manage secrets, preview queries, and issue or revoke scoped tokens. |
-| **v0.3 · Looker Studio** | Planned | A user authenticates through the generic Apps Script connector, browses available collections, and builds a report with a date range. |
+| **v0.3 · Looker Studio** | [v0.3.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.3.0) | A user authenticates through the generic Apps Script connector, browses available collections, and builds a report with a date range. |
 | **v0.4 · Managed datasets** | Planned | An administrator publishes a virtual dataset with a reusable pipeline, stable schema, field restrictions, filters, and permission-aware caching. |
 | **v1.0 · Self-hosted release** | Planned | A new operator can install and upgrade the gateway, configure supported providers and use Looker Studio from the web console without source edits. |
 | **v1.x · Advanced analytics** | Planned | Prioritize the visual aggregation builder, expanded filter pushdown, explain plans, shared caching, monitoring, and private networking against operator needs. |
@@ -31,6 +31,13 @@ The first milestone proves that a company can query its own MongoDB data through
 | Live sandbox verification, immutable image digest, and released source | [v0.2.0 release evidence](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.2.0) |
 | Reproduce the workflows | [Administrator guide](../administration.md) and [sandbox smoke script](../../deploy/sandbox/smoke.py) |
 
+## v0.3 delivery record
+
+- The [hosted console](../administration.md) serves the administration UI over HTTPS and exchanges a five-minute ticket for a browser session. The gateway and reporting endpoints remain private.
+- The [Apps Script connector](../../connector/Code.gs) implements token authentication, stepped discovery, schema, field selection and report date ranges. Run `node --test connector/connector.test.mjs` for its Apps Script contract tests.
+- The [sandbox reporting smoke](../../deploy/sandbox/report_smoke.py) tests the real reporting identity and checks that a single-day range returns only the second order. The [browser smoke](../../frontend/tests/hosted-smoke.js) exercises hosted sign-in, the largest-order preview, replay rejection and sign-out.
+- The operator opened the sandbox report with Apps Script deployment version 2 and confirmed that it rendered. The Google-hosted runtime issued nine successful data queries. An independent check verified that November 1 selects the order for 42 and November 1–2 includes the second order for 17. [Implementation](https://github.com/Hexcss/mongo-looker-connector/pull/12) · [Credential and sign-out corrections](https://github.com/Hexcss/mongo-looker-connector/pull/14) · [Sandbox verification](https://github.com/Hexcss/mongo-looker-connector/pull/15)
+
 ## Next milestone
 
-For **v0.3**, implement the generic Apps Script connector, stepped discovery, schema and data retrieval, and date ranges. Verify a Looker Studio report against a company-owned gateway and document its deployment options. Live Atlas verification remains a separate provider milestone.
+v0.4 adds reusable virtual datasets with stable schemas, field restrictions and permission-aware caching. Live Atlas verification remains a separate provider milestone.
