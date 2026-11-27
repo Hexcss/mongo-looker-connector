@@ -31,6 +31,21 @@ resource "google_service_account_iam_binding" "report_login" {
   members            = var.report_members
 }
 
+resource "google_project_iam_custom_role" "report_quota" {
+  count       = length(google_service_account.reporting)
+  project     = var.project_id
+  role_id     = "mlcReportingQuota"
+  title       = "Mongo Looker Connector reporting quota"
+  permissions = ["serviceusage.services.use"]
+}
+
+resource "google_project_iam_binding" "report_quota" {
+  count   = length(google_project_iam_custom_role.report_quota)
+  project = var.project_id
+  role    = google_project_iam_custom_role.report_quota[0].name
+  members = var.report_members
+}
+
 resource "google_cloud_run_v2_service_iam_member" "report_invoker" {
   count    = length(google_service_account.reporting)
   project  = var.project_id
