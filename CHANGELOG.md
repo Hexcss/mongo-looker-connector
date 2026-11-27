@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 · Release candidate
+## [0.3.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.3.0) · 2026-11-27
 
 - Serve the admin console at a permanent HTTPS address with short-lived, single-use sign-in and a secure browser session.
 - Connect Looker Studio to a private gateway with a scoped reporting credential and a dedicated Google reporting identity.
