@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Hexcss/mongo-looker-connector/internal/control"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // OpenAdmin starts the protected console and reporting API, even for a new deployment
@@ -122,6 +123,18 @@ func validManagedURI(raw string) bool {
 		}
 	}
 	if opts["tls"] != "true" && !(u.Scheme == "mongodb+srv" && opts["tls"] == "") {
+		return false
+	}
+	// Validate driver options before replacing a working credential. Parse SRV
+	// option values as a seed URI so saving a connection does not require DNS.
+	validationURI := raw
+	if u.Scheme == "mongodb+srv" {
+		if strings.ContainsAny(u.Host, ",:[]") || strings.EqualFold(opts["directconnection"], "true") {
+			return false
+		}
+		validationURI = "mongodb://" + strings.TrimPrefix(raw, "mongodb+srv://")
+	}
+	if err := options.Client().ApplyURI(validationURI).Validate(); err != nil {
 		return false
 	}
 	switch opts["authmechanism"] {

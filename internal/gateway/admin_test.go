@@ -77,6 +77,8 @@ func TestGrantsIntersectCurrentAllowlistAndGeneration(t *testing.T) {
 
 func TestManagedURI(t *testing.T) {
 	for _, u := range []string{
+		"mongodb://reader@db.example/?tls=true&serverSelectionTimeoutMS=invalid",
+		"mongodb+srv://db.example:27017/analytics",
 		"file:///etc/private", "mongodb://db.example/?tls=false", "mongodb://db.example/?tls=true&tlsInsecure=true",
 		"mongodb://db.example/?tls=true&tlsCAFile=/some/file",
 		"mongodb://db.example/?tls=true&authMechanism=MONGODB-OIDC",
