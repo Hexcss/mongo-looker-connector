@@ -38,6 +38,37 @@ variable "invokers" {
   }
 }
 
+variable "connections" {
+  description = "Named connections using existing same-project Secret Manager versions containing MongoDB URIs. An empty map selects the synthetic demo."
+  type = map(object({
+    secret_id = string
+    version   = string
+    databases = map(set(string))
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([for id, c in var.connections :
+      can(regex("^[A-Za-z0-9_-]{1,64}$", id)) &&
+      can(regex("^[A-Za-z0-9_-]{1,255}$", c.secret_id)) &&
+      can(regex("^(latest|[1-9][0-9]*)$", c.version))
+    ])
+    error_message = "Use a 1–64 character connection ID, a same-project secret ID, and a positive version number or latest."
+  }
+
+  validation {
+    condition = alltrue([for c in var.connections :
+      length(c.databases) > 0 && alltrue([for db, collections in c.databases :
+        length(collections) > 0 && alltrue([for name in concat([db], tolist(collections)) :
+          name != "" && name == trimspace(name) && !strcontains(name, "\u0000")
+        ])
+      ])
+    ])
+    error_message = "Provide nonempty database and collection allowlists with valid names."
+  }
+}
+
 provider "google" {
   project = var.project_id
   region  = var.region
@@ -53,6 +84,33 @@ data "terraform_remote_state" "sandbox" {
 
 locals {
   sandbox = data.terraform_remote_state.sandbox.outputs
+  uri_env = { for i, id in keys(var.connections) : id => "MONGODB_URI_${i + 1}" }
+  demo = [{
+    id        = "demo"
+    uriEnv    = "MONGODB_URI"
+    databases = { (local.sandbox.database) = ["orders"] }
+  }]
+  named = [for id, c in var.connections : {
+    id        = id
+    uriEnv    = local.uri_env[id]
+    databases = c.databases
+  }]
+}
+
+resource "google_project_service" "secret_manager" {
+  count              = length(var.connections) > 0 ? 1 : 0
+  project            = var.project_id
+  service            = "secretmanager.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_secret_manager_secret_iam_member" "reader" {
+  for_each   = toset([for c in var.connections : c.secret_id])
+  project    = var.project_id
+  secret_id  = each.key
+  role       = "roles/secretmanager.secretAccessor"
+  member     = "serviceAccount:${local.sandbox.runtime_account}"
+  depends_on = [google_project_service.secret_manager]
 }
 
 resource "google_cloud_run_v2_service" "gateway" {
@@ -62,6 +120,7 @@ resource "google_cloud_run_v2_service" "gateway" {
   ingress              = "INGRESS_TRAFFIC_ALL"
   invoker_iam_disabled = false
   deletion_protection  = true
+  depends_on           = [google_secret_manager_secret_iam_member.reader]
 
   template {
     max_instance_request_concurrency = 4
@@ -80,17 +139,28 @@ resource "google_cloud_run_v2_service" "gateway" {
         }
         cpu_idle = true
       }
-      env {
-        name  = "MONGODB_URI"
-        value = local.sandbox.mongodb_uri
+      dynamic "env" {
+        for_each = length(var.connections) == 0 ? [local.sandbox.mongodb_uri] : []
+        content {
+          name  = "MONGODB_URI"
+          value = env.value
+        }
+      }
+      dynamic "env" {
+        for_each = var.connections
+        content {
+          name = local.uri_env[env.key]
+          value_source {
+            secret_key_ref {
+              secret  = env.value.secret_id
+              version = env.value.version
+            }
+          }
+        }
       }
       env {
-        name = "GATEWAY_CONNECTIONS"
-        value = jsonencode([{
-          id        = "demo"
-          uriEnv    = "MONGODB_URI"
-          databases = { (local.sandbox.database) = ["orders"] }
-        }])
+        name  = "GATEWAY_CONNECTIONS"
+        value = length(var.connections) == 0 ? jsonencode(local.demo) : jsonencode(local.named)
       }
     }
   }

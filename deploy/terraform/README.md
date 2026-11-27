@@ -85,4 +85,45 @@ deploy/sandbox/drift
 
 The smoke script checks that anonymous access fails, then uses a gcloud user identity token to verify health, build metadata, discovery, schema types, and the two ordered values. The drift check plans all three stacks using the expected region, digest, and invokers. Exit code 0 means no changes, 2 means a plan contains changes, and 1 means the check failed. To roll back the gateway, set the image URI to a previously published digest, plan and apply the gateway stack, then rerun smoke and drift.
 
+## Use existing MongoDB connections
+
+To expose your own databases, put each complete, read-only MongoDB URI in an existing Secret Manager secret in the gateway's project. Choose a version that is enabled. Ensure the deployment operator can enable the Secret Manager API and update each secret's IAM policy. The MongoDB endpoint must accept connections from Cloud Run and the database credential must be able to discover and read the selected collections.
+
+Save the following as `deploy/terraform/gateway/connections.auto.tfvars`, substituting your secret IDs, version numbers, and allowed namespaces. An empty `connections` map selects the default demo. A nonempty map configures exactly the named connections and grants the gateway identity accessor access to each referenced secret. Terraform and the Cloud Run service definition contain secret references. Cloud Run retrieves their values at startup. A numerical version pins the secret used by each instance. [Cloud Run secret configuration](https://cloud.google.com/run/docs/configuring/services/secrets)
+
+```hcl
+connections = {
+  sales = {
+    secret_id = "sales-reporting-uri"
+    version   = "3"
+    databases = { analytics = ["orders", "customers"] }
+  }
+  billing = {
+    secret_id = "billing-reporting-uri"
+    version   = "1"
+    databases = { ledger = ["invoices"] }
+  }
+}
+```
+
+Apply the gateway stack with the expected image and invokers as in the release steps. For secret rotation, update the version and apply a new revision. The fixture smoke script checks the default demo only. For the example above, verify discovery and run a one-row report as an authorized invoker.
+
+```bash
+gcloud run services proxy mlc-sandbox --project="$PROJECT_ID" --account="$OPERATOR_ACCOUNT" \
+  --region="$TF_VAR_region" --port=8085
+```
+
+In a second terminal, check that the connection IDs are `billing` and `sales`, the sales database is `analytics`, and the collection list matches its allowlist.
+
+```bash
+base=http://127.0.0.1:8085/api/v1
+curl -fsS "$base/connections"
+curl -fsS "$base/connections/sales/databases"
+curl -fsS "$base/collections?connectionId=sales&database=analytics"
+curl -fsS "$base/query" -H 'Content-Type: application/json' \
+  -d '{"connectionId":"sales","database":"analytics","collection":"orders","pipeline":[{"$limit":1}],"fields":["_id"]}'
+```
+
+Run `deploy/sandbox/drift` with the same image, invokers and connection tfvars to verify the deployment. To test the Terraform configuration locally with Terraform 1.7 or later, initialize the gateway with `-backend=false` and run `terraform -chdir=deploy/terraform/gateway test -test-directory=plan-tests`. These tests use a mocked provider and remote state.
+
 The database and Cloud Run service have deletion protection. The bucket also has Terraform destruction protection. The database, image storage, state object versions, and requests can incur charges while the sandbox exists.
