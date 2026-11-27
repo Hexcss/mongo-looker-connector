@@ -47,8 +47,13 @@ try {
   await replay.getByText(/link expired or has already been used/i).waitFor();
   assert.ok([401, 403].includes((await replay.request.get(api, { maxRedirects: 0 })).status()), 'A consumed ticket started a second session');
   await page.goto(origin);
+  const logout = page.waitForResponse(r => new URL(r.url()).pathname === '/session/logout' && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Sign out' }).click();
+  assert.equal((await logout).status(), 303, 'The server declined sign-out');
+  await page.getByRole('heading', { name: 'Sign in with your operator account' }).waitFor();
   assert.ok([401, 403].includes((await page.request.get(api, { maxRedirects: 0 })).status()), 'Signed-out session still has access');
+  const revoked = await page.request.get(api, { headers: { Cookie: session.name + '=' + session.value }, maxRedirects: 0 });
+  assert.equal(revoked.status(), 401, 'The gateway still accepts the signed-out session');
   console.log('Verified hosted sign-in and sign-out, anonymous denial, cross-origin rejection, single-use ticket and order-001 for 42.');
 } finally {
   await browser.close();
