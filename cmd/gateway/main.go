@@ -14,6 +14,7 @@ import (
 	"github.com/Hexcss/mongo-looker-connector/internal/console"
 	"github.com/Hexcss/mongo-looker-connector/internal/control"
 	"github.com/Hexcss/mongo-looker-connector/internal/gateway"
+	"github.com/Hexcss/mongo-looker-connector/internal/hosted"
 )
 
 // Release builds populate these with -ldflags.
@@ -36,20 +37,30 @@ func run(ctx context.Context) error {
 	if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
 		return errors.New("PORT must be a valid TCP port")
 	}
-	api, closeStore, err := openGateway(ctx)
-	if err != nil {
-		return err
-	}
-	defer closeStore()
-	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		if api.Close(closeCtx) != nil {
-			log.Print("database pool shutdown failed")
+	var handler http.Handler
+	if url := os.Getenv("MLC_HOSTED_GATEWAY"); url != "" {
+		proxy, err := hosted.Open(ctx, url)
+		if err != nil {
+			return err
 		}
-	}()
+		handler = proxy
+	} else {
+		api, closeStore, err := openGateway(ctx)
+		if err != nil {
+			return err
+		}
+		defer closeStore()
+		defer func() {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if api.Close(closeCtx) != nil {
+				log.Print("database pool shutdown failed")
+			}
+		}()
+		handler = api
+	}
 	server := &http.Server{
-		Addr: ":" + port, Handler: api,
+		Addr: ":" + port, Handler: handler,
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
 		MaxHeaderBytes: 32 << 10,
@@ -92,6 +103,9 @@ func openGateway(ctx context.Context) (*gateway.Server, func(), error) {
 	if err != nil {
 		closeStore()
 		return nil, nil, err
+	}
+	if os.Getenv("MLC_HOSTED_LOGIN_ENABLED") == "true" {
+		api.EnableHostedLogins(store)
 	}
 	return api, closeStore, nil
 }
