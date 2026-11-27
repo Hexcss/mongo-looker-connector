@@ -76,3 +76,9 @@ A handled error looks like `{"error":{"code":"not_found","message":"Connection o
 ### Filter by a UTC date range
 
 On `POST /api/v1/query`, add `"dateRange":{"field":"orderedAt","startDate":"2026-11-01","endDate":"2026-11-30"}` to filter a BSON date on the source documents before running the report pipeline. Both calendar dates are inclusive. The gateway uses a native MongoDB range from midnight UTC on the first day to midnight UTC after the last day, so MongoDB can use an index on the date field. Nested paths such as `order.createdAt` are supported. Keys that require escaped dots or backslashes, empty path components, and dollar-prefixed path components are excluded. Omit the range for unfiltered queries.
+
+## Managed datasets
+
+Signed-in operators use `GET /api/v1/admin/datasets` to list definitions and `POST` on the same path to publish one. Update or delete with `PUT` or `DELETE /api/v1/admin/datasets/{id}` and the current `revision`. To grant dataset access, include `{"datasetId":"order-amounts","fields":["orderId","sales"]}` in the token's `grants` array.
+
+Reporting clients discover the virtual connection `@datasets` and database `published` under the usual discovery endpoints. Pass the dataset ID as the collection to `/schema` and `/query`. Dataset queries accept a `filters` object containing exact scalar matches on granted fields. [Examples, field types, revision semantics and cache headers](datasets.md)

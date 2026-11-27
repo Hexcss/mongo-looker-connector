@@ -7,7 +7,7 @@ The first milestone proves that a company can query its own MongoDB data through
 | **v0.1 · Core gateway** | [v0.1.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.1.0) | A Docker deployment discovers collections, infers schema, and returns expected aggregation results against both MongoDB and the Firestore Enterprise sandbox. |
 | **v0.2 · Administration console** | [v0.2.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.2.0) | An allowlisted administrator can configure connections, manage secrets, preview queries, and issue or revoke scoped tokens. |
 | **v0.3 · Looker Studio** | [v0.3.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.3.0) | A user authenticates through the generic Apps Script connector, browses available collections, and builds a report with a date range. |
-| **v0.4 · Managed datasets** | Planned | An administrator publishes a virtual dataset with a reusable pipeline, stable schema, field restrictions, filters, and permission-aware caching. |
+| **v0.4 · Managed datasets** | [v0.4.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.4.0) | An administrator publishes a virtual dataset with a reusable pipeline, stable schema, field restrictions, filters, and permission-aware caching. |
 | **v1.0 · Self-hosted release** | Planned | A new operator can install and upgrade the gateway, configure supported providers and use Looker Studio from the web console without source edits. |
 | **v1.x · Advanced analytics** | Planned | Prioritize the visual aggregation builder, expanded filter pushdown, explain plans, shared caching, monitoring, and private networking against operator needs. |
 
@@ -40,6 +40,11 @@ The first milestone proves that a company can query its own MongoDB data through
 
 The [v0.3.1 maintenance release](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.3.1) tracks Firefox compatibility for hosted sign-in and administration requests.
 
+## v0.4 delivery record
+
+- [Managed datasets](../datasets.md) covers publishing an aggregation, declaring stable fields, selecting field grants, and connecting the published view to Looker Studio.
+- The [live sandbox verification](../../deploy/sandbox/dataset_smoke.py) exercises distinct token scopes, cached and uncached queries, expiry, revision changes, and source credential rotation. The [release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.4.0) links deployment evidence and identifies the tested image.
+
 ## Next milestone
 
-v0.4 adds reusable virtual datasets with stable schemas, field restrictions and permission-aware caching. Live Atlas verification remains a separate provider milestone.
+For **v1.0**, verify a fresh self-hosted install and an upgrade, document provider configuration, and exercise the complete path from the console to a Looker Studio report. Live Atlas verification remains a separate provider milestone.
