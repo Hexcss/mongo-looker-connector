@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium, firefox } from 'playwright';
+import { verifyDatasets } from './hosted-datasets.js';
 
 // Only the launcher sees the operator credentials. Never log its single-use URL.
 const helper = fileURLToPath(new URL('../../deploy/sandbox/hosted_console.py', import.meta.url));
@@ -54,6 +55,7 @@ try {
   await checkWrite(response, 200);
   assert.deepEqual(await response.json(), { fields: ['_id', 'amount'], rows: [['order-001', 42]] });
   await page.getByText('order-001', { exact: true }).waitFor();
+  if (process.env.MLC_SMOKE_DATASETS === '1') await verifyDatasets(page, origin);
   const replay = await browser.newPage();
   try { await replay.goto(entry.href); } catch { throw new Error('Could not verify consumed login ticket'); }
   await replay.getByText(/link expired or has already been used/i).waitFor();

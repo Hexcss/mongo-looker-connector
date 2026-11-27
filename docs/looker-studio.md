@@ -35,3 +35,7 @@ If Looker Studio reports an error processing credentials, open the failed `setCr
 The script stores the reporting token in per-user Apps Script properties. It sends that token to the configured company gateway and sends the Google OAuth token to Google IAM to obtain the gateway invocation credential. The gateway sends the requested schema and rows through Apps Script to Looker Studio. Data source credential and report sharing settings determine who can view results. Revoking a token in the console prevents subsequent reads from the gateway. Previously fetched report data can remain in Looker Studio caches.
 
 The source is provided under the [Apache 2.0 license](../LICENSE). The organization deploying the connector manages its access policy, retention and user support, and should provide its own service terms and privacy notice to its users.
+
+## Use a published dataset
+
+Issue a token with a dataset grant, then select **@datasets → published → dataset ID** in the existing connector. The gateway returns the published schema restricted to the token's fields. To enable a report date control, grant its date field as well. [Managed dataset example](datasets.md)

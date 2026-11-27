@@ -34,9 +34,17 @@ The gateway stores configuration in its dedicated Firestore Native database and 
 
 Choose a connection, database, and collection in **Query preview**. Enter an aggregation pipeline as a JSON array. Leave the fields blank for schema inference, or choose fields in the order you want to see. Preview returns up to 50 rows using the gateway's read-only aggregation engine. Each operator is checked before execution. [Supported operators and BSON conversions](query.md)
 
+## Publish a managed dataset
+
+In **Datasets**, choose **Publish dataset**. Give the dataset a stable ID and select its source connection, database, and collection. Enter the saved pipeline as a JSON array. Use `[]` to report directly on the source documents. Under **Published schema**, add each output field in display order and choose its type. Reports use this schema even when the query returns zero rows.
+
+For the sandbox orders fixture, select `demo / mlc-sandbox / orders`, use `[{"$sort":{"amount":-1}}]`, and publish `_id` as `TEXT` and `amount` as `NUMBER`. Open **Preview rows**, enter `{"amount":42}` under **Equality filters**, and run the dataset preview to see `order-001`. Leave the filter empty for an unfiltered preview.
+
+A reporting token with a dataset grant sees the dataset ID under the `@datasets` connection and `published` database. Editing and republishing the definition invalidates earlier grants for that dataset. Issue replacement grants and update the reporting client. Deleting the dataset immediately removes access to it.
+
 ## Issue and revoke reporting tokens
 
-In **Access tokens**, give the token a label and select the connection, database, and collection for every grant. Copy the secret when it is issued. The gateway persists its hash and verifies the token and current namespace grants on each reporting request. Revocation takes effect on the next request, including on another gateway instance. Recreating a managed connection with a previously used ID does not revive old grants.
+In **Access tokens**, give the token a label and check the published fields its reports need under **Dataset field access**. To grant direct collection access, select a collection under **Source collection access**. That grant exposes every field the collection can return, even if a dataset grant on the same token restricts its published fields. Copy the secret when it is issued. The gateway persists its hash and verifies the token and current grants on each reporting request. Revocation takes effect on the next request, including on another gateway instance. Recreating a managed connection with a previously used ID does not revive old grants.
 
 In an admin-enabled private deployment, a reporting client needs **both** a Cloud Run invoker identity and a scoped reporting token. Send the Google ID token in `X-Serverless-Authorization` and the reporting credential in `Authorization`. Supply both through your client’s secret store. This example expects the two credentials to be available in the calling shell.
 
@@ -59,9 +67,15 @@ All admin API routes use `/api/v1/admin`. For writes and preview, send JSON and 
 | POST | `/connections` | Create with `id`, `databases`, and `uri` |
 | PUT | `/connections/{id}` | Supply the current `revision`, updated `databases`, and optionally a replacement `uri` |
 | DELETE | `/connections/{id}` | Supply the current `revision` |
+| GET | `/datasets` | List datasets with source, saved pipeline, ordered fields and revision |
+| POST | `/datasets` | Publish with `id`, `connectionId`, `database`, `collection`, `pipeline`, and an ordered array of `fields` with `name` and `type` |
+| PUT | `/datasets/{id}` | Replace the source, pipeline and schema with the current `revision` |
+| DELETE | `/datasets/{id}` | Supply the current `revision` |
 | POST | `/preview` | Use the [query request](api.md) with optional output fields |
 | GET | `/tokens` | List public metadata, concrete grants, and revocation status |
-| POST | `/tokens` | Supply `label` and `grants` with `connectionId`, `database`, and `collection`; the response includes the one-time secret |
+| POST | `/tokens` | Supply a `label` and `grants`. Dataset grants take `datasetId` and explicit `fields`. Collection grants take `connectionId`, `database` and `collection`. The response includes the one-time secret. |
 | DELETE | `/tokens/{id}` | Revoke the token |
 
 The synthetic [sandbox verification](../deploy/sandbox/smoke.py) covers creation, two kinds of edits, preview, issuance, use, rejection outside scope, revocation, and deletion. Run it with `VERIFY_ADMIN=1` on the default sandbox fixture.
+
+To exercise dataset publishing in the hosted console, set `PROJECT_ID`, `OPERATOR_ACCOUNT`, and `HOSTED_CONSOLE_URL`, then run `MLC_SMOKE_DATASETS=1 node frontend/tests/hosted-smoke.js`. It publishes a temporary dataset, checks filtered rows and a field-scoped grant, revokes its token, and deletes the dataset.

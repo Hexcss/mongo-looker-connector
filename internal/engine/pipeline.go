@@ -24,6 +24,14 @@ var operators = strings.Fields(`$and $or $nor $not $eq $ne $lt $lte $gt $gte $in
 	$concat $toLower $toUpper $ifNull $cond $year $month $dayOfMonth $dateToString $size $arrayElemAt`)
 
 func buildPipeline(raw json.RawMessage, limit int64) (mongo.Pipeline, error) {
+	stages, err := parsePipeline(raw)
+	if err != nil {
+		return nil, err
+	}
+	return append(stages, bson.D{{Key: "$limit", Value: limit}}), nil
+}
+
+func parsePipeline(raw json.RawMessage) (mongo.Pipeline, error) {
 	if len(raw) > 32<<10 {
 		return nil, fmt.Errorf("%w: pipeline exceeds 32 KiB", ErrLimit)
 	}
@@ -49,7 +57,7 @@ func buildPipeline(raw json.RawMessage, limit int64) (mongo.Pipeline, error) {
 		}
 		pipeline = append(pipeline, stage)
 	}
-	return append(pipeline, bson.D{{Key: "$limit", Value: limit}}), nil
+	return pipeline, nil
 }
 
 func validStage(stage bson.E) bool {

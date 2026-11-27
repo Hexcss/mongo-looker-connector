@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Hexcss/mongo-looker-connector/internal/control"
 	"github.com/Hexcss/mongo-looker-connector/internal/engine"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -77,6 +78,10 @@ type discoveryContext struct{ context.Context }
 func (discoveryContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 
 func (s *Server) listDatabases(w http.ResponseWriter, r *http.Request) {
+	if r.PathValue("id") == control.DatasetConnection {
+		s.datasetNamespaces(w, r, true)
+		return
+	}
 	c, closeClient, err := s.resolve(r, r.PathValue("id"), "", "")
 	if err != nil {
 		controlError(w, err)
@@ -98,11 +103,19 @@ func (s *Server) listDatabases(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listCollections(w http.ResponseWriter, r *http.Request) {
 	params, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil || len(params) != 2 || len(params["connectionId"]) != 1 || len(params["database"]) != 1 ||
-		!connectionID.MatchString(params.Get("connectionId")) || !validName(params.Get("database")) {
+		!reportConnectionID(params.Get("connectionId")) || !validName(params.Get("database")) {
 		invalidRequest(w)
 		return
 	}
 	db := params.Get("database")
+	if params.Get("connectionId") == control.DatasetConnection {
+		if db != control.DatasetDatabase {
+			notConfigured(w)
+			return
+		}
+		s.datasetNamespaces(w, r, false)
+		return
+	}
 	c, closeClient, err := s.resolve(r, params.Get("connectionId"), db, "")
 	if err != nil {
 		controlError(w, err)
@@ -157,6 +170,7 @@ type reportRequest struct {
 	pipeline   json.RawMessage
 	fields     []string
 	dateRange  *engine.DateRange
+	filters    map[string]json.RawMessage
 }
 
 // Decode the envelope separately from the pipeline. Each key must appear
@@ -166,7 +180,7 @@ func parseReport(body []byte) (reportRequest, error) {
 	var rawDates json.RawMessage
 	fields := map[string]any{
 		"connectionId": &req.connection, "database": &req.database, "collection": &req.collection,
-		"pipeline": &req.pipeline, "fields": &req.fields, "dateRange": &rawDates,
+		"pipeline": &req.pipeline, "fields": &req.fields, "dateRange": &rawDates, "filters": &req.filters,
 	}
 	if err := decodeReportObject(body, fields); err != nil {
 		return req, err
@@ -179,7 +193,7 @@ func parseReport(body []byte) (reportRequest, error) {
 		}
 		req.dateRange = dates
 	}
-	if !connectionID.MatchString(req.connection) || !validName(req.database) || !validName(req.collection) ||
+	if (fields["filters"] == nil && (req.filters == nil || req.connection != control.DatasetConnection)) || !reportConnectionID(req.connection) || !validName(req.database) || !validName(req.collection) ||
 		(fields["fields"] == nil && req.fields == nil) || (len(req.pipeline) > 0 && req.pipeline[0] != '[') {
 		return req, engine.ErrInvalid
 	}
@@ -223,8 +237,12 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req, err := parseReport(body)
-	if err != nil || (req.dateRange != nil && r.Pattern != "POST /api/v1/query") {
+	if err != nil || (req.dateRange != nil && r.Pattern != "POST /api/v1/query" && !(r.Pattern == "POST /api/v1/admin/preview" && req.connection == control.DatasetConnection)) {
 		invalidRequest(w)
+		return
+	}
+	if req.connection == control.DatasetConnection {
+		s.datasetReport(w, r, req)
 		return
 	}
 	c, closeClient, err := s.resolve(r, req.connection, req.database, req.collection)
