@@ -43,6 +43,21 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go test -race ./...
+      - name: Exercise persisted credentials and revocation against Firestore
+        env:
+          FIRESTORE_EMULATOR_HOST: 127.0.0.1:18205
+        run: |
+          jar="$RUNNER_TEMP/cloud-firestore-emulator-v1.22.0.jar"
+          curl --fail --silent --show-error --location --retry 3 --output "$jar" https://storage.googleapis.com/firebase-preview-drop/emulator/cloud-firestore-emulator-v1.22.0.jar
+          echo "9b6498b7f62714d67f48f59b3818883cd682dbcd46b9f59511de81c97bb5166c  $jar" | sha256sum --check --strict
+          "$JAVA_HOME_21_X64/bin/java" -XX:ActiveProcessorCount=2 -jar "$jar" --host=127.0.0.1 --port=18205 --project_id=mlc-test > "$RUNNER_TEMP/firestore.log" 2>&1 &
+          emulator=$!
+          trap 'kill "$emulator" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --output /dev/null "http://$FIRESTORE_EMULATOR_HOST/"; then break; fi
+            sleep 1
+          done
+          go test -mod=readonly -race -count=1 ./internal/control
       - name: Build and exercise the Docker gateway
         if: hashFiles('compose.yaml') != ''
         run: ./tests/smoke-local.sh
@@ -65,3 +80,18 @@ jobs:
       - name: Verify gateway connection plans
         if: hashFiles('deploy/terraform/gateway/plan-tests/*.tftest.hcl') != ''
         run: terraform -chdir=deploy/terraform/gateway test -test-directory=plan-tests -no-color
+      - name: Verify the loopback console launcher
+        run: python3 -B deploy/sandbox/console_test.py
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Rebuild and exercise the browser console
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          test -z "$(git status --porcelain -- ../internal/console/static)"
+          npx --no-install playwright install --with-deps chromium
+          npm test

@@ -2,7 +2,17 @@
 
 **Query MongoDB where it lives.** This self-hosted Go gateway gives reporting tools a tabular view of the collections you choose. Your company owns the deployment, database credentials, and data. Each report runs directly against its source.
 
-[Quickstart](#run-your-first-query) · [HTTP API](docs/api.md) · [Query reference](docs/query.md) · [Terraform deployment](deploy/terraform/README.md) · [Roadmap](docs/roadmap/README.md)
+[Administration console](docs/administration.md) · [Quickstart](#run-your-first-query) · [HTTP API](docs/api.md) · [Query reference](docs/query.md) · [Terraform deployment](deploy/terraform/README.md) · [Roadmap](docs/roadmap/README.md)
+
+## Open the administration console
+
+Manage MongoDB connections and credentials, preview read-only aggregations, and issue collection-scoped reporting tokens from one browser console. For an admin-enabled Google Cloud deployment, run the following command as an allowlisted operator and open the single-use link it prints.
+
+```sh
+PROJECT_ID=your-project-id OPERATOR_ACCOUNT=your-account python3 deploy/sandbox/console.py
+```
+
+[Console guide](docs/administration.md) · [Deployment and access setup](deploy/terraform/README.md)
 
 ## Run your first query
 
@@ -38,15 +48,15 @@ flowchart LR
     gateway -->|Workload OIDC| firestore["Firestore Enterprise with MongoDB compatibility"]
 ```
 
-Operators give each connection an ID, a reference to its credential environment variable, and a database and collection allowlist. The gateway uses the same scope for discovery, schema sampling, and queries. It flattens nested fields, preserves high-precision numeric values as text when needed, and caps execution time and response size.
+Operators define named connections and their database and collection allowlists in the console or deployment configuration. Managed credentials are stored in Secret Manager. The gateway uses the same scope for discovery, schema sampling, and queries. It flattens nested fields, preserves high-precision numeric values as text when needed, and caps execution time and response size.
 
-| Source | v0.1 verification |
+| Source | Verification |
 | --- | --- |
 | Self-hosted MongoDB | Docker smoke covers discovery, schema inference, an exact query result, and denial of access to an unlisted collection. |
 | Firestore Enterprise with MongoDB compatibility | The sandbox smoke exercises a named database through Cloud Run with workload identity and read-only IAM. See the roadmap for run evidence. |
 | MongoDB Atlas | Uses the MongoDB driver connection path. An Atlas deployment is a separate verification milestone. |
 
-**Looker Studio integration is planned for v0.3.** The v0.1 interface is the HTTP gateway. The [roadmap](docs/roadmap/README.md) follows the project through the administration console, managed datasets, and the self-hosted v1.0 release.
+**Looker Studio integration is planned for v0.3.** v0.2 ships the HTTP gateway and browser administration console. The [roadmap](docs/roadmap/README.md) follows the project through the connector, managed datasets, and the self-hosted v1.0 release.
 
 ## Deploy on Google Cloud
 
