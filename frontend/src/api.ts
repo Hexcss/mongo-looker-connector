@@ -8,6 +8,7 @@ export type Result = { fields: string[]; rows: (string | number | boolean | null
 export async function api(path: string, method = 'GET', body?: string, signal?: AbortSignal): Promise<Response> {
   const response = await fetch('/api/v1/admin/' + path, {
     method, body, signal, mode: 'same-origin', credentials: 'same-origin', cache: 'no-store',
+    referrerPolicy: 'same-origin', referrer: location.origin + '/',
     headers: method === 'GET' ? {} : { 'Content-Type': 'application/json', 'X-MLC-Request': 'console' }
   });
   if (!response.ok) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { chromium, firefox } from 'playwright';
 
 // Only the launcher sees the operator credentials. Never log its single-use URL.
 const helper = fileURLToPath(new URL('../../deploy/sandbox/hosted_console.py', import.meta.url));
@@ -9,17 +9,29 @@ const origin = new URL(process.env.HOSTED_CONSOLE_URL).origin;
 if (!/^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.run\.app$/.test(origin)) {
   throw new Error('Set HOSTED_CONSOLE_URL to the deployed Cloud Run console.');
 }
+const browserName = process.env.MLC_SMOKE_BROWSER || 'chromium';
+const engine = new Map([['chromium', chromium], ['firefox', firefox]]).get(browserName);
+if (!engine) throw new Error('MLC_SMOKE_BROWSER must be chromium or firefox.');
 const output = execFileSync('python3', [helper, '--print-url'], { encoding: 'utf8' }).trim();
 const entry = new URL(output.replace(/^Open /, ''));
 if (entry.origin !== origin || !entry.hash) throw new Error('Unexpected login destination');
-const browser = await chromium.launch();
+const browser = await engine.launch();
+async function checkWrite(response, status) {
+  const request = response.request();
+  assert.equal(await request.headerValue('origin'), origin, 'Console write must identify its origin');
+  const referrer = await request.headerValue('referer');
+  assert.ok(referrer === null || referrer === origin + '/', 'Console write exposed more than the origin root');
+  assert.equal(response.status(), status);
+}
 try {
   const page = await browser.newPage();
   page.setDefaultTimeout(20000);
   const api = origin + '/api/v1/admin/connections';
   const denied = await page.request.get(api, { maxRedirects: 0 });
   assert.ok([401, 403].includes(denied.status()), 'Anonymous directory access should be denied');
+  const redeem = page.waitForResponse(r => new URL(r.url()).pathname === '/session/redeem');
   try { await page.goto(entry.href); } catch { throw new Error('Hosted sign-in failed'); }
+  await checkWrite(await redeem, 204);
   await page.getByRole('heading', { name: 'Connection directory' }).waitFor();
   assert.ok(!new URL(page.url()).hash, 'Redeemed ticket remains in URL');
   const session = (await page.context().cookies(origin)).find(c => c.secure && c.httpOnly && c.sameSite === 'Strict');
@@ -39,7 +51,7 @@ try {
   const preview = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/admin/preview');
   await page.getByRole('button', { name: 'Run preview' }).click();
   const response = await preview;
-  assert.equal(response.status(), 200);
+  await checkWrite(response, 200);
   assert.deepEqual(await response.json(), { fields: ['_id', 'amount'], rows: [['order-001', 42]] });
   await page.getByText('order-001', { exact: true }).waitFor();
   const replay = await browser.newPage();
@@ -49,7 +61,7 @@ try {
   await page.goto(origin);
   const logout = page.waitForResponse(r => new URL(r.url()).pathname === '/session/logout' && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Sign out' }).click();
-  assert.equal((await logout).status(), 303, 'The server declined sign-out');
+  await checkWrite(await logout, 303);
   await page.getByRole('heading', { name: 'Sign in with your operator account' }).waitFor();
   assert.ok([401, 403].includes((await page.request.get(api, { maxRedirects: 0 })).status()), 'Signed-out session still has access');
   const revoked = await page.request.get(api, { headers: { Cookie: session.name + '=' + session.value }, maxRedirects: 0 });
