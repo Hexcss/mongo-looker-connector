@@ -7,27 +7,59 @@ function fail_(message) {
   cc.newUserError().setText(message).throwException();
 }
 
-function request_(url, headers, data) {
+// Only fixed stage labels, numeric HTTP statuses, and reviewed reason codes reach the log.
+function authWarning_(stage, status, reason) {
+  console.warn('reporting_auth stage=' + stage + ' status=' + status + ' reason=' + reason);
+}
+
+function iamReason_(response) {
+  const known = ['SERVICE_DISABLED', 'USER_PROJECT_DENIED', 'IAM_PERMISSION_DENIED',
+    'ACCESS_TOKEN_SCOPE_INSUFFICIENT', 'BILLING_DISABLED', 'CONSUMER_INVALID', 'RATE_LIMIT_EXCEEDED'];
+  try {
+    const details = JSON.parse(response.getContentText()).error.details;
+    const info = Array.isArray(details) && details.find(detail =>
+      detail && detail['@type'] === 'type.googleapis.com/google.rpc.ErrorInfo' && known.includes(detail.reason));
+    if (info) return info.reason;
+  } catch (_) {
+    // The response may be HTML, empty, or a different Google error envelope.
+  }
+  return 'HTTP_ERROR';
+}
+
+function request_(stage, url, headers, data) {
   const options = {headers, escaping: false, followRedirects: false, muteHttpExceptions: true};
   if (data !== undefined) {
     options.method = 'post';
     options.contentType = 'application/json';
     options.payload = JSON.stringify(data);
   }
-  return UrlFetchApp.fetch(url, options);
+  try {
+    return UrlFetchApp.fetch(url, options);
+  } catch (_) {
+    authWarning_(stage, 0, 'FETCH_FAILED');
+    fail_('Apps Script could not contact ' + stage + '. Check the deployed URL allowlist and HTTPS fetch permission.');
+  }
 }
 
 function gateway_(path, data, key) {
   if (!invocationIdToken) {
     const url = 'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/' + MLC_INVOKER + ':generateIdToken';
-    const response = request_(url, {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()},
-      {audience: MLC_GATEWAY_URL, includeEmail: true});
+    // package.py validates and pins the complete service-account email in Installation.gs.
+    const project = MLC_INVOKER.split('@')[1].split('.')[0];
+    const response = request_('iam', url, {
+      Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+      'x-goog-user-project': project
+    }, {audience: MLC_GATEWAY_URL, includeEmail: true});
     if (response.getResponseCode() !== 200) {
-      fail_('Google could not authorize the reporting identity. Ask the operator to check the reporting allowlist and IAM Credentials API.');
+      const status = response.getResponseCode();
+      const reason = iamReason_(response);
+      authWarning_('iam', status, reason);
+      fail_('Google could not authorize the reporting identity (HTTP ' + status + ', ' + reason +
+        '). Ask the operator to check the reporting allowlist and IAM Credentials API.');
     }
     invocationIdToken = JSON.parse(response.getContentText()).token;
   }
-  return request_(MLC_GATEWAY_URL + '/api/v1/' + path, {
+  return request_('gateway', MLC_GATEWAY_URL + '/api/v1/' + path, {
     'X-Serverless-Authorization': 'Bearer ' + invocationIdToken,
     Authorization: 'Bearer ' + key
   }, data);
@@ -53,6 +85,7 @@ function validKey_(key) {
   if (typeof key !== 'string' || !/^mlc_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$/.test(key)) return false;
   const response = gateway_('connections', undefined, key);
   const status = response.getResponseCode();
+  if (status !== 200) authWarning_('gateway', status, 'HTTP_ERROR');
   if (status === 401 || status === 403) return false;
   if (status !== 200) fail_('Could not verify access. The reporting gateway returned HTTP ' + status + '.');
   return Array.isArray(JSON.parse(response.getContentText()).connections);

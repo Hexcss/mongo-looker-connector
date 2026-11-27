@@ -34,6 +34,7 @@ class Config {
 function connector() {
   const properties = new Map();
   const calls = [];
+  const warnings = [];
   const settings = {fields, status: 200, iamStatus: 200};
   const getUserProperties = () => ({
     setProperty: (name, value) => properties.set(name, value),
@@ -47,6 +48,7 @@ function connector() {
     getConfig: () => new Config()
   };
   const context = createContext({
+    console: {warn: event => warnings.push(event)},
     DataStudioApp: {createCommunityConnector: () => cc},
     PropertiesService: {getUserProperties},
     ScriptApp: {getOAuthToken: () => 'test-user-access'},
@@ -59,9 +61,10 @@ function connector() {
       let body, status = settings.status;
       if (url.startsWith('https://iamcredentials.googleapis.com/')) {
         assert.equal(url, 'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/' + invoker + ':generateIdToken');
-        assert.deepEqual({...opts.headers}, {Authorization: 'Bearer test-user-access'});
+        assert.deepEqual({...opts.headers}, {Authorization: 'Bearer test-user-access', 'x-goog-user-project': 'example-project'});
         assert.deepEqual(data, {audience: origin, includeEmail: true});
-        body = {token: 'test-invoker'};
+        if (settings.iamThrows) throw new Error('upstream-private-detail');
+        body = settings.iamError || {token: 'test-invoker'};
         status = settings.iamStatus;
       } else {
         assert.deepEqual({...opts.headers}, {Authorization: 'Bearer ' + key, 'X-Serverless-Authorization': 'Bearer test-invoker'});
@@ -79,7 +82,7 @@ function connector() {
     }}
   });
   runInContext(source, context);
-  return {api: context, calls, settings, properties};
+  return {api: context, calls, settings, properties, warnings};
 }
 
 test('per-user KEY auth validates, stores, rechecks revocation and resets', () => {
@@ -154,4 +157,19 @@ test('date-free collections connect directly and one eligible date defaults with
   assert.equal(api.getConfig({configParams: namespace}).dateRequired, false);
   api.getData({...request, dateRange: undefined});
   assert.equal(calls.at(-1).data.dateRange, undefined);
+});
+
+test('IAM diagnostics allowlist reason codes and never echo response or transport details', () => {
+  const {api, settings, warnings} = connector();
+  settings.iamStatus = 403;
+  const info = {'@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'USER_PROJECT_DENIED'};
+  settings.iamError = {error: {message: 'upstream-private-detail', details: [info]}};
+  assert.throws(() => api.setCredentials({key}), /HTTP 403, USER_PROJECT_DENIED/);
+  assert.equal(warnings.pop(), 'reporting_auth stage=iam status=403 reason=USER_PROJECT_DENIED');
+  info.reason = 'upstream-private-detail';
+  assert.throws(() => api.setCredentials({key}), /HTTP 403, HTTP_ERROR/);
+  assert.equal(warnings.pop(), 'reporting_auth stage=iam status=403 reason=HTTP_ERROR');
+  settings.iamThrows = true;
+  assert.throws(() => api.setCredentials({key}), /could not contact iam/);
+  assert.equal(warnings.pop(), 'reporting_auth stage=iam status=0 reason=FETCH_FAILED');
 });
