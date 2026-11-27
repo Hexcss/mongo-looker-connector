@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Scope both the Terraform Google provider and GCS backend to the selected CLI account.
+set -eu
+: "${PROJECT_ID:?Set PROJECT_ID to the target Google Cloud project}"
+: "${OPERATOR_ACCOUNT:?Set OPERATOR_ACCOUNT to the authorized gcloud account}"
+unset GOOGLE_IMPERSONATE_SERVICE_ACCOUNT GOOGLE_BACKEND_IMPERSONATE_SERVICE_ACCOUNT
+GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token --account="$OPERATOR_ACCOUNT" --project="$PROJECT_ID")
+test -n "$GOOGLE_OAUTH_ACCESS_TOKEN"
+export GOOGLE_OAUTH_ACCESS_TOKEN
+export TF_VAR_project_id="$PROJECT_ID"
+exec terraform "$@"
