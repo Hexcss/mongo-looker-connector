@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 
 export type Connection = { id: string; databases: Record<string, string[]>; managed: boolean; revision: string };
-export type Grant = { connectionId: string; database: string; collection: string };
+export type CollectionGrant = { connectionId: string; database: string; collection: string };
+export type DatasetField = { name: string; type: string };
+export type Dataset = { id: string; connectionId: string; database: string; collection: string; pipelineText: string; fields: DatasetField[]; revision: string };
+export type DatasetGrant = { datasetId: string; fields: string[] };
+export type Grant = CollectionGrant | DatasetGrant;
 export type Token = { id: string; label: string; grants: Grant[]; createdAt: string; revoked: boolean };
 export type Result = { fields: string[]; rows: (string | number | boolean | null)[][] };
 

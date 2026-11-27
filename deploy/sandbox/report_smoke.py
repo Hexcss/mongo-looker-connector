@@ -8,20 +8,26 @@ import secrets
 from console import _gcloud, admin_tokens, service_url
 
 
-def request(host, method, path, headers, body=None, expected=200):
+def request(host, method, path, headers, body=None, expected=200, cache=None):
     conn = http.client.HTTPSConnection(host, timeout=65)
     try:
         conn.request(method, path, body=json.dumps(body) if body is not None else None,
                      headers={**headers, "Content-Type": "application/json"})
         response = conn.getresponse()
-        if response.status != expected:
+        allowed = expected if isinstance(expected, tuple) else (expected,)
+        if response.status not in allowed:
             raise RuntimeError(f"{method} {path} returned HTTP {response.status}, expected {expected}")
-        return json.loads(response.read()) if expected in (200, 201) else None
+        disposition = response.getheader("X-MLC-Cache")
+        if cache is not None and disposition != cache:
+            raise RuntimeError(f"{method} {path} returned cache status {disposition!r}, expected {cache}")
+        if response.status >= 400 and disposition == "HIT":
+            raise RuntimeError("Rejected request was served from cache")
+        return json.loads(response.read()) if response.status in (200, 201) else None
     finally:
         conn.close()
 
 
-def main():
+def sandbox_clients():
     project = os.environ["PROJECT_ID"]
     account = os.environ["OPERATOR_ACCOUNT"]
     region = os.environ.get("TF_VAR_region", "europe-west1")
@@ -33,11 +39,15 @@ def main():
                        f"/v1/projects/-/serviceAccounts/{reporting_sa}:generateIdToken",
                        {"Authorization": "Bearer " + bearer}, {"audience": url, "includeEmail": True})
     transport = {"X-Serverless-Authorization": "Bearer " + identity["token"]}
-    request(host, "GET", "/api/v1/connections", transport, expected=401)
-
     operator, proof = admin_tokens(project, account, region)
     admin = {"X-Serverless-Authorization": "Bearer " + operator, "X-MLC-Admin-Assertion": proof,
              "X-MLC-Request": "console"}
+    return host, transport, admin
+
+
+def main():
+    host, transport, admin = sandbox_clients()
+    request(host, "GET", "/api/v1/connections", transport, expected=401)
     tokens = "/api/v1/admin/tokens"
     grant = {"connectionId": "demo", "database": "mlc-sandbox", "collection": "orders"}
     issued = request(host, "POST", tokens, admin, {

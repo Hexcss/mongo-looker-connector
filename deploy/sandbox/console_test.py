@@ -78,6 +78,11 @@ class ConsoleSessionTest(unittest.TestCase):
                 "Content-Type": "application/json", "X-MLC-Request": "console",
                 "X-Serverless-Authorization": "Bearer " + self.proof, "X-MLC-Admin-Assertion": self.proof,
             })
+            for method, path in (("GET", "datasets"), ("POST", "datasets"),
+                                 ("PUT", "datasets/sales"), ("DELETE", "datasets/sales")):
+                endpoint = "/api/v1/admin/" + path
+                self.assertEqual(self.local(endpoint, method, mutation, None if method == "GET" else "{}").status, 200)
+                self.assertEqual(conn.request.call_args.args, (method, endpoint))
             result.status = 302
             self.assertEqual(self.local("/admin/", headers=session).status, 502)
             self.mint.assert_called_once()

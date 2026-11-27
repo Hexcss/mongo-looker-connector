@@ -33,6 +33,7 @@ async function fixture(t, viewport) {
   t.after(() => assert.deepEqual(errors, []));
   const connections = [{ id: 'warehouse', managed: false, revision: '', databases: { reporting: ['orders', 'regions'] } }];
   const tokens = [];
+  const datasets = [];
   const requests = [];
   await page.route('**/api/v1/admin/**', async route => {
     const request = route.request();
@@ -52,7 +53,16 @@ async function fixture(t, viewport) {
       if (method === 'DELETE') connections.splice(connections.findIndex(c => c.id === id), 1);
       return result({});
     }
-    if (resource === 'preview') return result({ fields: ['item', 'amount'], rows: [['Lathe', 42]] });
+    if (resource === 'datasets') {
+      if (method === 'GET') return result({ datasets });
+      if (method === 'POST') datasets.push({ ...body, pipelineText: body.pipeline.length ? '[{"$match":{"serial":9007199254740993}}]' : '[]', revision: 'ds1' });
+      if (method === 'PUT') Object.assign(datasets.find(d => d.id === id), body, { revision: 'ds2' });
+      if (method === 'DELETE') datasets.splice(datasets.findIndex(d => d.id === id), 1);
+      return result({});
+    }
+    if (resource === 'preview') return body.connectionId === '@datasets'
+      ? result({ fields: ['_id', 'amount'], rows: [['order-001', 42]] })
+      : result({ fields: ['item', 'amount'], rows: [['Lathe', 42]] });
     if (resource === 'tokens') {
       if (method === 'GET') return result({ tokens });
       if (method === 'POST') {
@@ -196,4 +206,50 @@ test('an open editor retains the revision it actually displayed during a backgro
   await page.getByRole('button', { name: 'Save connection' }).click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
   assert.equal(requests.at(-1).body.revision, 'old');
+});
+
+test('publish a stable schema, issue a field-scoped grant, republish and delete a dataset', async t => {
+  const { page, requests } = await fixture(t, { width: 390, height: 844 });
+  await page.getByRole('link', { name: 'Datasets', exact: true }).click();
+  await page.getByRole('button', { name: 'Publish dataset' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Dataset ID').fill('sales');
+  const pipeline = '[{"$match":{"serial":9007199254740993}}]';
+  await dialog.getByLabel('Saved pipeline').fill(pipeline);
+  await dialog.getByLabel('Field name').fill('_id');
+  await dialog.getByRole('button', { name: 'Add field' }).click();
+  await dialog.getByLabel('Field name').nth(1).fill('amount');
+  await dialog.getByLabel('Field type').nth(1).selectOption('NUMBER');
+  await dialog.getByRole('button', { name: 'Publish dataset' }).click();
+  await page.getByRole('button', { name: 'Edit sales' }).waitFor();
+  const publish = requests.at(-1);
+  assert.equal(publish.body.collection, 'orders');
+  assert.deepEqual(publish.body.fields, [{ name: '_id', type: 'TEXT' }, { name: 'amount', type: 'NUMBER' }]);
+  assert.ok(publish.raw.includes(pipeline));
+  await page.getByText('Preview rows', { exact: true }).click();
+  await page.getByLabel('Equality filters').fill('{"amount":42}');
+  await page.getByRole('button', { name: 'Run dataset preview' }).click();
+  await page.getByRole('region', { name: 'Dataset preview' }).getByRole('cell', { name: 'order-001' }).waitFor();
+  assert.deepEqual(requests.at(-1).body, {
+    connectionId: '@datasets', database: 'published', collection: 'sales', fields: ['_id', 'amount'], filters: { amount: 42 }
+  });
+  await page.getByRole('link', { name: 'Access tokens' }).click();
+  await page.getByRole('button', { name: 'Issue token' }).click();
+  await dialog.getByLabel('Token label').fill('Amounts only');
+  await dialog.getByRole('group', { name: 'sales', exact: true }).getByLabel('amount', { exact: true }).check();
+  await dialog.getByRole('button', { name: 'Issue token' }).click();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  assert.deepEqual(requests.at(-1).body.grants, [{ datasetId: 'sales', fields: ['amount'] }]);
+  await page.getByRole('link', { name: 'Datasets', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit sales' }).click();
+  assert.equal(await dialog.getByLabel('Saved pipeline').inputValue(), pipeline);
+  await dialog.getByRole('button', { name: 'Republish dataset' }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  assert.equal(requests.at(-1).body.revision, 'ds1');
+  assert.ok(requests.at(-1).raw.includes(pipeline));
+  await page.getByRole('button', { name: 'Delete sales' }).click();
+  await dialog.getByRole('button', { name: 'Delete dataset' }).click();
+  await page.getByRole('heading', { name: 'No datasets yet' }).waitFor();
+  assert.deepEqual(requests.at(-1).body, { revision: 'ds2' });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });

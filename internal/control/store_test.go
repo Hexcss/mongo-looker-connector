@@ -188,7 +188,7 @@ func TestStoreEmulator(t *testing.T) {
 		t.Fatal("raw bearer persisted")
 	}
 	auth, err := s.Authenticate(ctx, raw)
-	if err != nil || len(auth.Grants) != 1 || auth.Grants[0] != grant {
+	if err != nil || len(auth.Grants) != 1 || !reflect.DeepEqual(auth.Grants[0], grant) {
 		t.Fatalf("authentication: %v", err)
 	}
 	_, other := newBearer()
