@@ -64,8 +64,9 @@ resource "google_cloud_run_v2_service" "gateway" {
   deletion_protection  = true
 
   template {
-    service_account = local.sandbox.runtime_account
-    timeout         = "60s"
+    max_instance_request_concurrency = 4
+    service_account                  = local.sandbox.runtime_account
+    timeout                          = "60s"
     scaling {
       min_instance_count = 0
       max_instance_count = 1

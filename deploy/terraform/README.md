@@ -71,7 +71,7 @@ digest=$(gcloud artifacts docker images describe "$registry/gateway:$tag" \
 export TF_VAR_image_uri="$registry/gateway@$digest"
 ```
 
-Set `TF_VAR_invokers` to the identities that should be able to call the service. The default is empty. Project-level permissions can also grant invoke access. Cloud Run checks invoker IAM on inbound requests, scales revision instances between zero and one, and sets the container's `PORT`. Store the expected image digest and invoker list for future plans.
+Set `TF_VAR_invokers` to the identities that should be able to call the service. The default is empty. Project-level permissions can also grant invoke access. Cloud Run checks invoker IAM on inbound requests and sets the container's `PORT`. Each revision scales between zero and one instance. An instance handles at most four concurrent requests within its 512 MiB memory limit. Store the expected image digest and invoker list for future plans.
 
 ```bash
 export TF_VAR_invokers="[\"user:$OPERATOR_ACCOUNT\"]"
