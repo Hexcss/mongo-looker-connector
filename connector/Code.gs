@@ -1,6 +1,7 @@
 // Installation.gs pins the company-owned gateway and its reporting-only identity.
 const cc = DataStudioApp.createCommunityConnector();
 const keyProperty = 'mlc.reportingKey';
+const noSourceDate = '$none'; // MongoDB date paths cannot start with '$'.
 let invocationIdToken;
 
 function fail_(message) {
@@ -31,7 +32,7 @@ function request_(stage, url, headers, data) {
   if (data !== undefined) {
     options.method = 'post';
     options.contentType = 'application/json';
-    options.payload = JSON.stringify(data);
+    options.payload = typeof data === 'string' ? data : JSON.stringify(data);
   }
   try {
     return UrlFetchApp.fetch(url, options);
@@ -65,13 +66,20 @@ function gateway_(path, data, key) {
   }, data);
 }
 
-function read_(path, data) {
+function read_(path, data, pipeline, optionalSourceSchema = false) {
   const key = PropertiesService.getUserProperties().getProperty(keyProperty);
   if (!key) fail_('Authorize this connector with a reporting token.');
+  // pipeline is a validated JSON array. Preserve BSON int64 literals and compound sort key order.
+  if (pipeline !== undefined) data = JSON.stringify(data).slice(0, -1) + ',"pipeline":' + pipeline + '}';
   const response = gateway_(path, data, key);
   const status = response.getResponseCode();
   if (status === 401 || status === 403) fail_('Access denied. Check the reporting token and Cloud Run invoker permissions.');
   if (status === 404) fail_('The selected connection or namespace is unavailable. Reconfigure the data source.');
+  // A narrow custom projection can fit even when the unprojected sample exceeds schema limits.
+  if (status === 413 && optionalSourceSchema) return {fields: []};
+  if (pipeline !== undefined && status === 400) fail_('The gateway rejected the aggregation pipeline. Check the read-only stages, operators and field names.');
+  if (pipeline !== undefined && status === 413) fail_('The aggregation exceeds a gateway limit. Shorten the pipeline or reduce its output.');
+  if (pipeline !== undefined && status === 502) fail_('MongoDB could not run the aggregation. Check the stage arguments and source field types.');
   if (status === 413) fail_('This report exceeds a gateway limit. Select fewer fields or a shorter date range.');
   if (status !== 200) fail_('The reporting gateway returned HTTP ' + status + '.');
   return JSON.parse(response.getContentText());
@@ -107,10 +115,27 @@ function resetAuth() {
 
 function configValues_(saved) {
   const params = {};
-  for (const id of ['connectionId', 'database', 'collection', 'dateField']) {
+  for (const id of ['connectionId', 'database', 'collection', 'dateField', 'sourceDateField', 'queryMode']) {
     if (saved && saved[id]) params[id] = decodeURIComponent(saved[id]);
   }
+  if (params.queryMode && !['collection', 'custom'].includes(params.queryMode)) fail_('Choose an available query mode.');
+  if (params.queryMode === 'custom') {
+    if (params.connectionId === '@datasets') fail_('Published datasets use the pipeline configured by their administrator.');
+    params.pipeline = saved.pipeline;
+  }
   return params;
+}
+
+function pipeline_(params) {
+  if (params.queryMode !== 'custom') return undefined;
+  let valid = false;
+  try {
+    valid = typeof params.pipeline === 'string' && Array.isArray(JSON.parse(params.pipeline));
+  } catch (_) {
+    // Keep query text out of error messages.
+  }
+  if (!valid) fail_('Enter the MongoDB aggregation pipeline as a JSON array of stages.');
+  return params.pipeline;
 }
 
 function namespace_(params) {
@@ -122,14 +147,18 @@ function selectableDate_(field) {
     field.name.split('.').every(part => part && !part.startsWith('$'));
 }
 
+function sourceDates_(params, optional = false) {
+  return read_('schema', namespace_(params), undefined, optional).fields.filter(selectableDate_).map(field => field.name);
+}
+
 function getConfig(request) {
   const params = configValues_(request.configParams);
   const config = cc.getConfig();
   config.setIsSteppedConfig(true);
-  function choose(id, label, values, dynamic) {
+  function choose(id, label, values, dynamic, display = value => value) {
     if (!values.length) fail_('No available options for ' + label + '. Check the token grants and source data.');
     const select = config.newSelectSingle().setId(id).setName(label).setIsDynamic(dynamic);
-    values.forEach(value => select.addOption(config.newOptionBuilder().setLabel(value).setValue(encodeURIComponent(value))));
+    values.forEach(value => select.addOption(config.newOptionBuilder().setLabel(display(value)).setValue(encodeURIComponent(value))));
     if (params[id] && !values.includes(params[id])) fail_('The saved ' + label + ' is unavailable. Reconfigure the data source.');
     return Boolean(params[id]);
   }
@@ -140,6 +169,26 @@ function getConfig(request) {
   const collections = read_('collections?connectionId=' + encodeURIComponent(params.connectionId) +
     '&database=' + encodeURIComponent(params.database)).collections;
   if (!choose('collection', 'Collection', collections, true)) return config.build();
+  if (params.connectionId !== '@datasets' && !choose('queryMode', 'Query mode', ['collection', 'custom'], true,
+    mode => mode === 'collection' ? 'Collection' : 'Custom aggregation')) return config.build();
+  if (params.queryMode === 'custom') {
+    config.newTextArea().setId('pipeline').setName('MongoDB aggregation pipeline (JSON)')
+      .setIsDynamic(true).setAllowOverride(false)
+      .setHelpText('Enter a JSON array of read-only stages. Include a stable sort if row order matters.')
+      .setPlaceholder('[{"$sort":{"amount":-1,"_id":1}},{"$limit":10}]');
+    if (params.pipeline === undefined || (typeof params.pipeline === 'string' && !params.pipeline.trim())) return config.build();
+    const output = read_('schema', namespace_(params), pipeline_(params)).fields;
+    if (!output.length) fail_('The pipeline returned no sampled fields. Edit it to return at least one row with fields.');
+    const filterByDate = Boolean(params.sourceDateField && params.sourceDateField !== noSourceDate);
+    const dates = sourceDates_(params, !filterByDate);
+    if (dates.length || filterByDate) {
+      if (!choose('sourceDateField', 'Filter source rows by date (UTC)', [noSourceDate, ...dates], true,
+        name => name === noSourceDate ? 'No date filter' : name)) return config.build();
+    }
+    config.setDateRangeRequired(filterByDate);
+    config.setIsSteppedConfig(false);
+    return config.build();
+  }
   const fields = read_('schema', namespace_(params)).fields;
   if (!fields.length) fail_('The collection has no sampled fields. Choose a collection containing documents.');
   const dates = fields.filter(selectableDate_).map(field => field.name);
@@ -167,14 +216,16 @@ function schemaField_(field) {
 }
 
 function getSchema(request) {
-  const fields = read_('schema', namespace_(configValues_(request.configParams))).fields;
+  const params = configValues_(request.configParams);
+  const fields = read_('schema', namespace_(params), pipeline_(params)).fields;
   return {schema: fields.map(schemaField_)};
 }
 
 function getData(request) {
   const params = configValues_(request.configParams);
   const body = namespace_(params);
-  const fields = read_('schema', body).fields;
+  const pipeline = pipeline_(params);
+  const fields = read_('schema', body, pipeline).fields;
   const schemaById = new Map(fields.map(field => {
     const schema = schemaField_(field);
     return [schema.name, schema];
@@ -184,20 +235,29 @@ function getData(request) {
     if (!field) fail_('A requested field is unavailable. Refresh the data source schema.');
     return field;
   });
-  // Looker can split wide charts into batches of fields. Keep row order stable.
-  body.pipeline = [{$sort: {_id: 1}}];
+  // Looker may batch fields. The author controls ordering in custom aggregations.
+  if (pipeline === undefined) body.pipeline = [{$sort: {_id: 1}}];
   body.fields = schema.map(field => field.label);
-  const dateFields = fields.filter(selectableDate_);
-  const dateField = params.dateField || (request.dateRange && dateFields.length === 1 && dateFields[0].name);
-  if (dateField) {
-    if (!dateFields.some(f => f.name === dateField) || !request.dateRange) {
+  let dateField;
+  if (pipeline !== undefined) {
+    if (params.sourceDateField && params.sourceDateField !== noSourceDate) {
+      dateField = params.sourceDateField;
+      if (!request.dateRange || !sourceDates_(params).includes(dateField)) {
+        fail_('Refresh the data source and select an available source date field and report date range.');
+      }
+    }
+  } else {
+    const dates = fields.filter(selectableDate_).map(field => field.name);
+    dateField = params.dateField || (request.dateRange && dates.length === 1 && dates[0]);
+    if (dateField && (!dates.includes(dateField) || !request.dateRange)) {
       fail_('Refresh the data source and select an available date field and report date range.');
     }
-    body.dateRange = {field: dateField, startDate: request.dateRange.startDate, endDate: request.dateRange.endDate};
-  } else if (request.dateRange && dateFields.length) {
-    fail_('Choose a report date field in the data source configuration.');
+    if (!dateField && request.dateRange && dates.length) fail_('Choose a report date field in the data source configuration.');
   }
-  const result = read_('query', body);
+  if (dateField) {
+    body.dateRange = {field: dateField, startDate: request.dateRange.startDate, endDate: request.dateRange.endDate};
+  }
+  const result = read_('query', body, pipeline);
   const rows = result.rows.map(row => ({values: row.map((value, i) => {
     if (value === null) return null;
     const type = schema[i].dataType;

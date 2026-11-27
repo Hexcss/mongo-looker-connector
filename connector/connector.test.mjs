@@ -15,17 +15,22 @@ const fields = [{name: '_id', type: 'TEXT'}, {name: 'amount', type: 'NUMBER'},
 
 class Config {
   questions = [];
-  newSelectSingle() {
-    const q = {choices: []};
+  newSelectSingle() { return this.entry('select'); }
+  newTextArea() { return this.entry('textarea'); }
+  entry(type) {
+    const q = {type, choices: [], labels: []};
     this.questions.push(q);
     return {
       setId(id) { q.id = id; return this; },
-      setName() { return this; },
+      setName(name) { q.name = name; return this; },
+      setHelpText(help) { q.help = help; return this; },
+      setPlaceholder(example) { q.example = example; return this; },
+      setAllowOverride(value) { q.override = value; return this; },
       setIsDynamic(value) { q.dynamic = value; return this; },
-      addOption(option) { q.choices.push(option.value); return this; }
+      addOption(option) { q.choices.push(option.value); q.labels.push(option.label); return this; }
     };
   }
-  newOptionBuilder() { return {setLabel() { return this; }, setValue(value) { this.value = value; return this; }}; }
+  newOptionBuilder() { return {setLabel(label) { this.label = label; return this; }, setValue(value) { this.value = value; return this; }}; }
   setIsSteppedConfig(value) { this.stepped = value; }
   setDateRangeRequired(value) { this.dateRequired = value; }
   build() { return this; }
@@ -56,7 +61,7 @@ function connector() {
     MLC_GATEWAY_URL: origin, MLC_INVOKER: invoker,
     UrlFetchApp: {fetch(url, opts) {
       const data = opts.payload && JSON.parse(opts.payload);
-      calls.push({url, data});
+      calls.push({url, data, payload: opts.payload});
       assert.equal(opts.followRedirects, false);
       let body, status = settings.status;
       if (url.startsWith('https://iamcredentials.googleapis.com/')) {
@@ -69,13 +74,17 @@ function connector() {
       } else {
         assert.deepEqual({...opts.headers}, {Authorization: 'Bearer ' + key, 'X-Serverless-Authorization': 'Bearer test-invoker'});
         const routes = {
-          connections: {connections: ['demo']},
+          connections: {connections: settings.connections || ['demo']},
+          'connections/%40datasets/databases': {databases: ['published']},
+          'collections?connectionId=%40datasets&database=published': {collections: ['weekly']},
           'connections/demo/databases': {databases: ['sales']},
           'collections?connectionId=demo&database=sales': {collections: ['daily orders']},
-          schema: {fields: settings.fields}, query: {rows: [[42, 'order-001']]}
+          schema: {fields: data?.pipeline ? (settings.outputFields ?? settings.fields) : settings.fields},
+          query: {rows: settings.rows || [[42, 'order-001']]}
         };
         assert.ok(url.startsWith(origin + '/api/v1/'));
         body = routes[url.slice((origin + '/api/v1/').length)];
+        if (url.endsWith('/schema') && !data?.pipeline && settings.sourceSchemaStatus) status = settings.sourceSchemaStatus;
         assert.ok(body);
       }
       return {getResponseCode: () => status, getContentText: () => JSON.stringify(body)};
@@ -113,14 +122,14 @@ test('stepped discovery preserves real names and only selects BSON dates', () =>
   let config = api.getConfig({});
   assert.equal(config.stepped, true);
   assert.deepEqual(config.questions.map(q => q.id), ['connectionId']);
-  config = api.getConfig({configParams: params});
+  config = api.getConfig({configParams: {...params, queryMode: 'collection'}});
   assert.equal(config.stepped, false);
   assert.equal(config.dateRequired, true);
-  assert.deepEqual(config.questions.map(q => q.choices), [['demo'], ['sales'], ['daily%20orders'], ['order.date']]);
+  assert.deepEqual(config.questions.map(q => q.choices), [['demo'], ['sales'], ['daily%20orders'], ['collection', 'custom'], ['order.date']]);
   settings.fields = fields.slice(0, 2);
-  config = api.getConfig({configParams: params});
+  config = api.getConfig({configParams: {...params, queryMode: 'collection'}});
   assert.equal(config.dateRequired, false);
-  assert.equal(config.questions.length, 3);
+  assert.equal(config.questions.length, 4);
   assert.throws(() => api.getConfig({configParams: {connectionId: 'other'}}), /unavailable/);
 });
 
@@ -147,14 +156,14 @@ test('date-free collections connect directly and one eligible date defaults with
   api.setCredentials({key});
   const {dateField, ...namespace} = params;
   const request = {configParams: namespace, dateRange: range, fields: [{name: 'amount'}, {name: '_id'}]};
-  assert.equal(api.getConfig({configParams: namespace}).stepped, false);
+  assert.equal(api.getConfig({configParams: {...namespace, queryMode: 'collection'}}).stepped, false);
   api.getData(request);
   assert.equal(calls.at(-1).data.dateRange.field, 'order.date');
   settings.fields = fields.concat({name: 'shipped', type: 'YEAR_MONTH_DAY_SECOND'});
-  assert.equal(api.getConfig({configParams: namespace}).stepped, true);
+  assert.equal(api.getConfig({configParams: {...namespace, queryMode: 'collection'}}).stepped, true);
   assert.throws(() => api.getData(request), /Choose a report date field/);
   settings.fields = fields.slice(0, 2);
-  assert.equal(api.getConfig({configParams: namespace}).dateRequired, false);
+  assert.equal(api.getConfig({configParams: {...namespace, queryMode: 'collection'}}).dateRequired, false);
   api.getData({...request, dateRange: undefined});
   assert.equal(calls.at(-1).data.dateRange, undefined);
 });
@@ -172,4 +181,97 @@ test('IAM diagnostics allowlist reason codes and never echo response or transpor
   settings.iamThrows = true;
   assert.throws(() => api.setCredentials({key}), /could not contact iam/);
   assert.equal(warnings.pop(), 'reporting_auth stage=iam status=0 reason=FETCH_FAILED');
+});
+
+const customFields = [{name: 'revenue', type: 'NUMBER'}, {name: 'lastOrder', type: 'YEAR_MONTH_DAY_SECOND'}];
+const pipeline = '[\n  {"$match":{"comment":"100% / %2F","serial":9007199254740993}},\n' +
+  '  {"$project":{"revenue":"$amount","lastOrder":"$order.date"}},{"$sort":{"2":-1,"1":1}}\n]';
+const custom = {...params, queryMode: 'custom', pipeline};
+
+test('stepped raw source setup offers a private pipeline editor and optional source date', () => {
+  const {api, calls, settings} = connector();
+  settings.outputFields = customFields;
+  settings.fields = fields.concat({name: 'none', type: 'YEAR_MONTH_DAY_SECOND'});
+  api.setCredentials({key});
+  const mode = api.getConfig({configParams: params});
+  assert.deepEqual(mode.questions.at(-1).labels, ['Collection', 'Custom aggregation']);
+  assert.equal(mode.stepped, true);
+  const editor = api.getConfig({configParams: {...custom, pipeline: ''}});
+  assert.equal(editor.stepped, true);
+  const question = editor.questions.at(-1);
+  assert.deepEqual([question.id, question.type, question.dynamic, question.override], ['pipeline', 'textarea', true, false]);
+  assert.ok(Array.isArray(JSON.parse(question.example)));
+  assert.equal(calls.filter(call => call.url.endsWith('/schema')).length, 0);
+  const dates = api.getConfig({configParams: custom}).questions.at(-1);
+  assert.equal(dates.id, 'sourceDateField');
+  assert.deepEqual(dates.labels, ['No date filter', 'order.date', 'none']);
+  for (const [index, required] of [[0, false], [1, true], [2, true]]) {
+    const final = api.getConfig({configParams: {...custom, sourceDateField: dates.choices[index]}});
+    assert.equal(final.stepped, false);
+    assert.equal(final.dateRequired, required);
+  }
+  settings.fields = [];
+  assert.equal(api.getConfig({configParams: custom}).dateRequired, false);
+  settings.sourceSchemaStatus = 413;
+  assert.equal(api.getConfig({configParams: custom}).dateRequired, false);
+  assert.throws(() => api.getConfig({configParams: {...custom, sourceDateField: 'order.date'}}), /gateway limit/i);
+  settings.sourceSchemaStatus = 403;
+  assert.throws(() => api.getConfig({configParams: custom}), /access denied/i);
+  settings.sourceSchemaStatus = 200;
+  settings.outputFields = [];
+  assert.throws(() => api.getConfig({configParams: custom}), /no .*fields/i);
+});
+
+test('uses exact JSON in output schema and data queries and filters only selected source dates', () => {
+  const {api, calls, settings} = connector();
+  settings.outputFields = customFields;
+  settings.rows = [[42]];
+  api.setCredentials({key});
+  assert.deepEqual(Array.from(api.getSchema({configParams: custom}).schema, f => f.name), ['revenue', 'lastOrder']);
+  const report = {configParams: custom, fields: [{name: 'revenue'}], dateRange: range};
+  assert.equal(api.getData(report).rows[0].values[0], 42);
+  assert.equal(calls.at(-1).data.dateRange, undefined);
+  assert.equal(calls.filter(call => call.url.endsWith('/schema') && !call.data.pipeline).length, 0);
+  for (const call of calls.filter(call => call.data?.pipeline)) {
+    assert.ok(call.payload.includes(pipeline), 'changed numeric literals, key order or percent sequences');
+    assert.equal(call.data.pipeline.length, 3);
+    assert.equal(call.data.collection, 'daily orders');
+  }
+  api.getData({...report, configParams: {...custom, sourceDateField: 'order.date'}});
+  assert.deepEqual(calls.at(-1).data.dateRange, {field: 'order.date', ...range});
+  for (const sourceDateField of ['lastOrder', 'amount']) {
+    assert.throws(() => api.getData({...report, configParams: {...custom, sourceDateField}}), /date field/i);
+  }
+  assert.throws(() => api.getData({...report, configParams: {...custom, sourceDateField: 'order.date'}, dateRange: undefined}), /date range/i);
+  assert.throws(() => api.getData({...report, fields: [{name: 'amount'}]}), /unavailable/);
+});
+
+test('rejects invalid JSON and stale custom configurations without falling back to a raw collection', () => {
+  const {api, calls, settings} = connector();
+  api.setCredentials({key});
+  assert.throws(() => api.getConfig({configParams: {...custom, pipeline: {}}}), /JSON array/i);
+  for (const value of ['', '  ', '[', 'null', '{}', '[],"fields":["other"]']) {
+    assert.throws(() => api.getSchema({configParams: {...custom, pipeline: value}}), /JSON array/i);
+  }
+  assert.throws(() => api.getSchema({configParams: {...params, queryMode: 'typo'}}), /query mode/i);
+  assert.equal(calls.filter(call => call.url.endsWith('/schema')).length, 0);
+  settings.status = 400;
+  assert.throws(() => api.getSchema({configParams: custom}), /aggregation pipeline/i);
+});
+
+test('published datasets have no custom mode and keep their configured pipeline and restrictions', () => {
+  const {api, calls, settings} = connector();
+  settings.connections = ['@datasets'];
+  api.setCredentials({key});
+  const published = {connectionId: '%40datasets', database: 'published', collection: 'weekly'};
+  const config = api.getConfig({configParams: published});
+  assert.deepEqual(config.questions.map(q => q.id), ['connectionId', 'database', 'collection', 'dateField']);
+  assert.equal(config.stepped, false);
+  api.getData({configParams: published, fields: [{name: 'amount'}, {name: '_id'}], dateRange: range});
+  assert.deepEqual(calls.at(-1).data.pipeline, [{$sort: {_id: 1}}]);
+  const before = calls.length;
+  const forged = {configParams: {...published, queryMode: 'custom', pipeline: '[]'}};
+  assert.throws(() => api.getSchema(forged), /published dataset/i);
+  assert.throws(() => api.getData({...forged, fields: [{name: 'amount'}]}), /published dataset/i);
+  assert.equal(calls.length, before);
 });
