@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useList } from './api';
 import type { Connection } from './api';
+import { Datasets } from './Datasets';
 import { Connections } from './Connections';
 import { Preview } from './Preview';
 import { Tokens } from './Tokens';
@@ -10,6 +11,7 @@ import './style.css';
 
 const destinations = [
   { href: 'connections', label: 'Connections', icon: 'database' },
+  { href: 'datasets', label: 'Datasets', icon: 'layers' },
   { href: 'preview', label: 'Query preview', icon: 'terminal' },
   { href: 'tokens', label: 'Access tokens', icon: 'key' }
 ];
@@ -43,6 +45,7 @@ function App() {
       <main id="main" tabIndex={-1}>
         {error ? <><h1 id="page-title" tabIndex={-1}>{page.label}</h1><Alert>{error} Use Refresh to retry.</Alert></> : !list ? <p className="loading" role="status">Loading connections…</p> :
           page.href === 'connections' ? <Connections items={list} refresh={refresh} /> :
+          page.href === 'datasets' ? <Datasets items={list} refreshKey={refreshKey} /> :
           page.href === 'preview' ? <Preview key={hash} items={list} initialID={new URLSearchParams(params).get('connection')} /> :
           <Tokens items={list} refreshKey={refreshKey} />}
       </main>
