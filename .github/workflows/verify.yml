@@ -62,3 +62,6 @@ jobs:
             terraform -chdir="$root" init -backend=false -input=false -lockfile=readonly
             terraform -chdir="$root" validate
           done
+      - name: Verify gateway connection plans
+        if: hashFiles('deploy/terraform/gateway/plan-tests/*.tftest.hcl') != ''
+        run: terraform -chdir=deploy/terraform/gateway test -test-directory=plan-tests -no-color
