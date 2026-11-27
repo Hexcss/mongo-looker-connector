@@ -145,3 +145,68 @@ run "reject_anonymous_admin_members" {
   }
   expect_failures = [var.admin_members]
 }
+
+run "reporting_transport" {
+  command = plan
+  variables {
+    admin_members  = ["user:operator@example.org"]
+    report_members = ["user:analyst@example.org"]
+  }
+  assert {
+    condition = (
+      google_service_account.reporting[0].account_id == "mlc-reporting" &&
+      google_service_account_iam_binding.report_login[0].members == var.report_members &&
+      google_service_account_iam_binding.report_login[0].role == "roles/iam.serviceAccountOpenIdTokenCreator" &&
+      google_cloud_run_v2_service_iam_member.report_invoker[0].role == "roles/run.invoker" &&
+      google_cloud_run_v2_service_iam_member.report_invoker[0].name == google_cloud_run_v2_service.gateway.name &&
+      google_service_account_iam_binding.console_login[0].members == var.admin_members
+    )
+    error_message = "Report creators can mint only reporting-identity tokens; their service account invokes the private gateway."
+  }
+}
+
+run "reject_reporting_without_scoped_auth" {
+  command = plan
+  variables {
+    report_members = ["user:analyst@example.org"]
+  }
+  expect_failures = [google_service_account.reporting]
+}
+
+run "hosted_console" {
+  command = plan
+  variables {
+    admin_members  = ["user:operator@example.org"]
+    hosted_console = true
+  }
+  assert {
+    condition = (
+      google_cloud_run_v2_service.hosted[0].invoker_iam_disabled &&
+      !google_cloud_run_v2_service.gateway.invoker_iam_disabled &&
+      google_service_account.hosted[0].account_id == "mlc-console-web" &&
+      google_cloud_run_v2_service_iam_member.hosted_invoker[0].name == google_cloud_run_v2_service.gateway.name &&
+      google_cloud_run_v2_service_iam_member.hosted_invoker[0].role == "roles/run.invoker" &&
+      google_cloud_run_v2_service.hosted[0].template[0].containers[0].env[*].name == tolist(["MLC_HOSTED_GATEWAY"]) &&
+      contains(google_cloud_run_v2_service.gateway.template[0].containers[0].env[*].name, "MLC_HOSTED_LOGIN_ENABLED") &&
+      google_cloud_run_v2_service_iam_binding.hosted_discovery[0].members == var.admin_members
+    )
+    error_message = "Expose only the separate browser entry point and invoke the private gateway with a dedicated identity."
+  }
+  assert {
+    condition = (
+      google_firestore_field.hosted_login_ttl[0].database == google_firestore_database.metadata[0].name &&
+      google_firestore_field.hosted_login_ttl[0].collection == "hostedLogins" &&
+      google_firestore_field.hosted_login_ttl[0].field == "expiresAt" &&
+      length(google_firestore_field.hosted_login_ttl[0].ttl_config) == 1
+    )
+    error_message = "Remove expired single-use logins from the operator metadata database."
+  }
+}
+
+run "reject_hosted_console_without_scoped_auth" {
+  command = plan
+  variables {
+    hosted_console = true
+  }
+  expect_failures = [google_service_account.hosted]
+}

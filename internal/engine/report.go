@@ -25,6 +25,29 @@ const (
 	queryTimeout   = 10 * time.Second
 )
 
+// DateRange applies an inclusive range of UTC calendar dates to a BSON date field.
+type DateRange struct {
+	Field, StartDate, EndDate string
+}
+
+func (r DateRange) match() (bson.D, error) {
+	if len(r.Field) > maxNameBytes || strings.ContainsAny(r.Field, "\\\x00") {
+		return nil, ErrInvalid
+	}
+	for _, part := range strings.Split(r.Field, ".") {
+		if part == "" || strings.HasPrefix(part, "$") {
+			return nil, ErrInvalid
+		}
+	}
+	start, err := time.Parse(time.DateOnly, r.StartDate)
+	end, endErr := time.Parse(time.DateOnly, r.EndDate)
+	if err != nil || endErr != nil || start.Year() == 0 || end.Before(start) {
+		return nil, ErrInvalid
+	}
+	bounds := bson.D{{Key: "$gte", Value: start}, {Key: "$lt", Value: end.AddDate(0, 0, 1)}}
+	return bson.D{{Key: "$match", Value: bson.D{{Key: r.Field, Value: bounds}}}}, nil
+}
+
 type Field struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
@@ -37,7 +60,7 @@ type Result struct {
 func Schema(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage) ([]Field, error) {
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	cur, err := aggregate(ctx, coll, pipeline, sampleRows)
+	cur, err := aggregate(ctx, coll, pipeline, sampleRows, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -45,8 +68,8 @@ func Schema(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessag
 	return readSchema(ctx, cur)
 }
 
-func Query(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage, fields []string) (Result, error) {
-	return query(ctx, coll, pipeline, fields, maxRows+1)
+func Query(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage, fields []string, dates *DateRange) (Result, error) {
+	return query(ctx, coll, pipeline, fields, maxRows+1, dates)
 }
 
 // Preview returns at most 50 rows, inferring columns when the editor omits them.
@@ -63,9 +86,9 @@ func Preview(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessa
 			return Result{Fields: []string{}, Rows: [][]any{}}, nil
 		}
 	}
-	return query(ctx, coll, pipeline, fields, 50)
+	return query(ctx, coll, pipeline, fields, 50, nil)
 }
-func query(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage, fields []string, limit int64) (Result, error) {
+func query(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage, fields []string, limit int64, dates *DateRange) (Result, error) {
 	if len(fields) == 0 || len(fields) > maxFields {
 		return Result{}, fmt.Errorf("%w: select 1 to %d fields", ErrInvalid, maxFields)
 	}
@@ -78,7 +101,7 @@ func query(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage
 	}
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	cur, err := aggregate(ctx, coll, pipeline, limit)
+	cur, err := aggregate(ctx, coll, pipeline, limit, dates)
 	if err != nil {
 		return Result{}, err
 	}
@@ -86,10 +109,17 @@ func query(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage
 	return readQuery(ctx, cur, fields)
 }
 
-func aggregate(ctx context.Context, coll *mongo.Collection, raw json.RawMessage, limit int64) (*mongo.Cursor, error) {
+func aggregate(ctx context.Context, coll *mongo.Collection, raw json.RawMessage, limit int64, dates *DateRange) (*mongo.Cursor, error) {
 	p, err := buildPipeline(raw, limit)
 	if err != nil {
 		return nil, err
+	}
+	if dates != nil {
+		match, err := dates.match()
+		if err != nil {
+			return nil, err
+		}
+		p = append(mongo.Pipeline{match}, p...)
 	}
 	return coll.Aggregate(ctx, p, options.Aggregate().SetAllowDiskUse(false).SetBatchSize(32))
 }

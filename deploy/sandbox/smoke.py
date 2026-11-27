@@ -75,8 +75,12 @@ check(request(base + "/connections/demo/databases", headers=admin), {"databases"
 check(request(base + "/collections?connectionId=demo&database=" + database, headers=admin),
       {"collections": ["orders"]}, "collections")
 schema = request(base + "/schema", "POST", fixture, admin)["fields"]
-check({v["name"]: v["type"] for v in schema}, {"_id": "TEXT", "amount": "NUMBER"}, "schema")
+check({v["name"]: v["type"] for v in schema},
+      {"_id": "TEXT", "amount": "NUMBER", "orderedAt": "YEAR_MONTH_DAY_SECOND"}, "schema")
 check(request(base + "/query", "POST", fixture, admin), expected_rows, "fixture query")
+by_date = dict(fixture, dateRange={"field": "orderedAt", "startDate": "2026-11-02", "endDate": "2026-11-02"})
+check(request(base + "/query", "POST", by_date, admin),
+      {"fields": ["_id", "amount"], "rows": [["order-002", 17]]}, "one-day UTC report")
 
 
 def verify_console():
@@ -112,7 +116,10 @@ def verify_console():
         request(path, "PUT", {"revision": "stale", "databases": namespaces}, admin, 409)
         preview = dict(managed)
         del preview["fields"]
-        check(request(base + "/admin/preview", "POST", preview, admin), expected_rows, "inferred preview")
+        check(request(base + "/admin/preview", "POST", preview, admin),
+              {"fields": ["_id", "amount", "orderedAt"],
+               "rows": [["order-001", 42, "20261101120000"], ["order-002", 17, "20261102153000"]]},
+              "inferred preview")
 
         scoped = issue()
         check(request(base + "/connections", headers=scoped), {"connections": [name]}, "scoped discovery")

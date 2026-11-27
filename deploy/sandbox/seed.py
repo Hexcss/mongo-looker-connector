@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+from datetime import datetime
 
 from pymongo import MongoClient
 
@@ -25,7 +26,11 @@ if (info["name"] != f"projects/{project}/databases/{database}"
 
 uri = (f"mongodb://{info['uid']}.{region}.firestore.goog:443/{database}"
        "?loadBalanced=true&tls=true&retryWrites=false&authMechanism=PLAIN&authSource=$external")
-orders = [{"_id": "order-001", "amount": 42}, {"_id": "order-002", "amount": 17}]
+# PyMongo encodes naive datetimes as UTC and decodes UTC dates to naive datetimes.
+orders = [
+    {"_id": "order-001", "amount": 42, "orderedAt": datetime(2026, 11, 1, 12)},
+    {"_id": "order-002", "amount": 17, "orderedAt": datetime(2026, 11, 2, 15, 30)},
+]
 with MongoClient(uri, username="access_token", password=gcloud("auth", "print-access-token"),
                  serverSelectionTimeoutMS=15000, timeoutMS=30000) as client:
     collection = client[database]["orders"]
