@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.4.0) · 2026-11-27
+
+- Publish virtual MongoDB datasets with reusable pipelines, explicit typed schemas and field-scoped reporting grants.
+- Discover published datasets in the existing Looker Studio connector and query them with date ranges or typed equality filters through the gateway.
+- Cache authorized dataset queries for up to 60 seconds, with separate entries for each reporting token and request.
+
 ## [0.3.1](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.3.1) · 2026-11-27
 
 - Preserve the same-origin information Firefox needs for console sign-in, preview and sign-out.

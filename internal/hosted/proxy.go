@@ -23,7 +23,7 @@ const cookieName = "__Host-mlc-session"
 const maxBody = 256 << 10
 
 var key = regexp.MustCompile("^[a-zA-Z0-9_-]{43}$")
-var privatePath = regexp.MustCompile("^/api/v1/admin/(connections|tokens)(/[a-zA-Z0-9_-]{1,64})?$|^/api/v1/admin/preview$")
+var privatePath = regexp.MustCompile("^/api/v1/admin/(connections|datasets|tokens)(/[a-zA-Z0-9_-]{1,64})?$|^/api/v1/admin/preview$")
 
 //go:embed login.html
 var landing string

@@ -37,6 +37,10 @@ func (s *Server) EnableAdmin(store catalog, verify func(context.Context, string)
 	s.mux.HandleFunc("PUT /api/v1/admin/connections/{id}", s.saveConnection)
 	s.mux.HandleFunc("DELETE /api/v1/admin/connections/{id}", s.deleteConnection)
 	s.mux.HandleFunc("POST /api/v1/admin/preview", s.report)
+	s.mux.HandleFunc("GET /api/v1/admin/datasets", s.adminDatasets)
+	s.mux.HandleFunc("POST /api/v1/admin/datasets", s.saveDataset)
+	s.mux.HandleFunc("PUT /api/v1/admin/datasets/{id}", s.saveDataset)
+	s.mux.HandleFunc("DELETE /api/v1/admin/datasets/{id}", s.deleteDataset)
 	s.mux.HandleFunc("GET /api/v1/admin/tokens", s.adminTokens)
 	s.mux.HandleFunc("POST /api/v1/admin/tokens", s.issueToken)
 	s.mux.HandleFunc("DELETE /api/v1/admin/tokens/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -214,9 +218,11 @@ func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 type scope struct {
-	ConnectionID string `json:"connectionId"`
-	Database     string `json:"database"`
-	Collection   string `json:"collection"`
+	ConnectionID string   `json:"connectionId,omitempty"`
+	Database     string   `json:"database,omitempty"`
+	Collection   string   `json:"collection,omitempty"`
+	DatasetID    string   `json:"datasetId,omitempty"`
+	Fields       []string `json:"fields,omitempty"`
 }
 type tokenInfo struct {
 	ID        string    `json:"id"`
@@ -229,7 +235,11 @@ type tokenInfo struct {
 func publicToken(t control.Token) tokenInfo {
 	grants := make([]scope, 0, len(t.Grants))
 	for _, g := range t.Grants {
-		grants = append(grants, scope{g.ConnectionID, g.Database, g.Collection})
+		if g.ConnectionID == control.DatasetConnection {
+			grants = append(grants, scope{DatasetID: g.Collection, Fields: g.Fields})
+		} else {
+			grants = append(grants, scope{ConnectionID: g.ConnectionID, Database: g.Database, Collection: g.Collection})
+		}
 	}
 	return tokenInfo{t.ID, t.Label, grants, t.CreatedAt, t.Revoked}
 }
@@ -260,6 +270,19 @@ func (s *Server) issueToken(w http.ResponseWriter, r *http.Request) {
 	grants := make([]control.Grant, 0, len(in.Grants))
 	records := map[string]control.Connection{}
 	for _, g := range in.Grants {
+		if g.DatasetID != "" {
+			grant, err := s.datasetGrant(r.Context(), g)
+			if err != nil {
+				controlError(w, err)
+				return
+			}
+			grants = append(grants, grant)
+			continue
+		}
+		if g.Fields != nil || !connectionID.MatchString(g.ConnectionID) {
+			invalidRequest(w)
+			return
+		}
 		c, ok := records[g.ConnectionID]
 		if !ok {
 			var err error

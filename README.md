@@ -2,7 +2,7 @@
 
 **Query MongoDB where it lives.** This self-hosted Go gateway gives reporting tools a tabular view of the collections you choose. Your company owns the deployment, database credentials, and data. Each report runs directly against its source.
 
-[Administration console](docs/administration.md) · [Quickstart](#run-your-first-query) · [HTTP API](docs/api.md) · [Query reference](docs/query.md) · [Terraform deployment](deploy/terraform/README.md) · [Roadmap](docs/roadmap/README.md)
+[Administration console](docs/administration.md) · [Managed datasets](docs/datasets.md) · [Quickstart](#run-your-first-query) · [HTTP API](docs/api.md) · [Query reference](docs/query.md) · [Terraform deployment](deploy/terraform/README.md) · [Roadmap](docs/roadmap/README.md)
 
 ## Open the administration console
 
@@ -13,6 +13,10 @@ PROJECT_ID=your-project-id OPERATOR_ACCOUNT=your-account python3 deploy/sandbox/
 ```
 
 [Console guide](docs/administration.md) · [Deployment and access setup](deploy/terraform/README.md)
+
+## Publish a managed dataset
+
+Turn a collection into a reporting view with a saved aggregation and a fixed schema. In the admin console, publish a dataset, then issue a token for its permitted fields. In Looker Studio, choose **@datasets → published → your dataset**. Repeated identical gateway queries can use a token-isolated cache for up to 60 seconds. [Publish the orders example](docs/datasets.md)
 
 ## Run your first query
 

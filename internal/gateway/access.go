@@ -15,6 +15,10 @@ import (
 )
 
 type catalog interface {
+	Datasets(context.Context) ([]control.Dataset, error)
+	GetDataset(context.Context, string) (control.Dataset, error)
+	SaveDataset(context.Context, control.Dataset) (control.Dataset, error)
+	DeleteDataset(context.Context, string, string) error
 	Connections(context.Context) ([]control.Connection, error)
 	GetConnection(context.Context, string) (control.Connection, error)
 	SaveConnection(context.Context, string, map[string][]string, string, string) (control.Connection, error)
@@ -27,6 +31,7 @@ type catalog interface {
 }
 
 type administration struct {
+	cache  resultCache
 	logins loginStore
 	store  catalog
 	verify func(context.Context, string) bool
@@ -137,6 +142,16 @@ func (s *Server) visibleIDs(r *http.Request) ([]string, error) {
 		for _, c := range records {
 			ids = append(ids, c.ID)
 		}
+		if s.admin != nil {
+			datasets, err := s.visibleDatasets(r)
+			if err != nil {
+				return nil, err
+			}
+			if len(datasets) != 0 {
+				ids = append(ids, control.DatasetConnection)
+				slices.Sort(ids)
+			}
+		}
 		return ids, nil
 	}
 	distinct := map[string]bool{}
@@ -144,6 +159,16 @@ func (s *Server) visibleIDs(r *http.Request) ([]string, error) {
 		distinct[g.ConnectionID] = true
 	}
 	for _, id := range slices.Sorted(maps.Keys(distinct)) {
+		if id == control.DatasetConnection {
+			datasets, err := s.visibleDatasets(r)
+			if err != nil {
+				return nil, err
+			}
+			if len(datasets) > 0 {
+				ids = append(ids, id)
+			}
+			continue
+		}
 		c, err := s.record(r.Context(), id)
 		if errors.Is(err, control.ErrNotFound) {
 			continue
@@ -199,11 +224,16 @@ func (s *Server) resolve(r *http.Request, id, db, collection string) (connection
 	if len(visible) == 0 || (db != "" && len(visible[db]) == 0) || (collection != "" && !slices.Contains(visible[db], collection)) {
 		return connection{}, nil, control.ErrNotFound
 	}
-	if c, ok := s.connections[id]; ok {
+	return s.openRecord(r.Context(), meta, visible)
+}
+
+// Use the exact credential version checked during authorization for this request.
+func (s *Server) openRecord(ctx context.Context, meta control.Connection, visible map[string][]string) (connection, func(), error) {
+	if c, ok := s.connections[meta.ID]; ok {
 		c.databases = visible
 		return c, func() {}, nil
 	}
-	uri, err := s.admin.store.URI(r.Context(), meta)
+	uri, err := s.admin.store.URI(ctx, meta)
 	if err != nil {
 		return connection{}, nil, err
 	}

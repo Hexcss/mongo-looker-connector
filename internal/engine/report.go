@@ -49,8 +49,8 @@ func (r DateRange) match() (bson.D, error) {
 }
 
 type Field struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Name string `json:"name" firestore:"name"`
+	Type string `json:"type" firestore:"type"`
 }
 type Result struct {
 	Fields []string `json:"fields"`
@@ -147,37 +147,23 @@ func readSchema(ctx context.Context, c *mongo.Cursor) ([]Field, error) {
 }
 
 func readQuery(ctx context.Context, c *mongo.Cursor, fields []string) (Result, error) {
-	result := Result{Fields: fields, Rows: [][]any{}}
-	header, err := json.Marshal(result)
-	if err != nil {
-		return Result{}, err
-	}
-	size := len(header)
 	types := make([]string, len(fields))
-	err = scan(ctx, c, maxRows, func(index int, doc map[string]bson.RawValue) error {
+	result, err := collectRows(ctx, c, fields, func(index int, raw bson.Raw) ([]any, error) {
+		doc := map[string]bson.RawValue{}
+		if err := flatten(raw, "", 0, doc); err != nil {
+			return nil, err
+		}
 		row := make([]any, len(fields))
 		for i, name := range fields {
 			kind, value := cell(doc[name])
 			if index < sampleRows {
 				types[i] = mergeType(types[i], kind)
 			} else if expected := displayType(types[i]); kind != "" && expected != "TEXT" && kind != expected {
-				return fmt.Errorf("%w: field type changed after schema sample", ErrInvalid)
+				return nil, fmt.Errorf("%w: field type changed after schema sample", ErrInvalid)
 			}
 			row[i] = value
 		}
-		encoded, err := json.Marshal(row)
-		if err != nil {
-			return err
-		}
-		size += len(encoded)
-		if index > 0 {
-			size++
-		}
-		if size > maxResultBytes {
-			return fmt.Errorf("%w: response exceeds 2 MiB", ErrLimit)
-		}
-		result.Rows = append(result.Rows, row)
-		return nil
+		return row, nil
 	})
 	if err != nil {
 		return Result{}, err
@@ -203,6 +189,39 @@ func readQuery(ctx context.Context, c *mongo.Cursor, fields []string) (Result, e
 	return result, ctx.Err()
 }
 
+// Both sampled and declared schemas use the same row, document and response bounds.
+func collectRows(ctx context.Context, c *mongo.Cursor, fields []string, decode func(int, bson.Raw) ([]any, error)) (Result, error) {
+	result := Result{Fields: fields, Rows: [][]any{}}
+	header, err := json.Marshal(result)
+	if err != nil {
+		return Result{}, err
+	}
+	size := len(header)
+	err = scanRaw(ctx, c, maxRows, func(i int, raw bson.Raw) error {
+		row, err := decode(i, raw)
+		if err != nil {
+			return err
+		}
+		encoded, err := json.Marshal(row)
+		if err != nil {
+			return err
+		}
+		size += len(encoded)
+		if i > 0 {
+			size++
+		}
+		if size > maxResultBytes {
+			return fmt.Errorf("%w: response exceeds 2 MiB", ErrLimit)
+		}
+		result.Rows = append(result.Rows, row)
+		return nil
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return result, nil
+}
+
 func mergeType(old, kind string) string {
 	if old == "" {
 		return kind
@@ -220,6 +239,16 @@ func displayType(kind string) string {
 }
 
 func scan(ctx context.Context, c *mongo.Cursor, limit int, visit func(int, map[string]bson.RawValue) error) error {
+	return scanRaw(ctx, c, limit, func(i int, raw bson.Raw) error {
+		doc := map[string]bson.RawValue{}
+		if err := flatten(raw, "", 0, doc); err != nil {
+			return err
+		}
+		return visit(i, doc)
+	})
+}
+
+func scanRaw(ctx context.Context, c *mongo.Cursor, limit int, visit func(int, bson.Raw) error) error {
 	for i := 0; c.Next(ctx); i++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -230,11 +259,7 @@ func scan(ctx context.Context, c *mongo.Cursor, limit int, visit func(int, map[s
 		if len(c.Current) > 1<<20 {
 			return fmt.Errorf("%w: a result document exceeds 1 MiB", ErrLimit)
 		}
-		doc := map[string]bson.RawValue{}
-		if err := flatten(c.Current, "", 0, doc); err != nil {
-			return err
-		}
-		if err := visit(i, doc); err != nil {
+		if err := visit(i, c.Current); err != nil {
 			return err
 		}
 	}
