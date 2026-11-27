@@ -46,6 +46,26 @@ func Schema(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessag
 }
 
 func Query(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage, fields []string) (Result, error) {
+	return query(ctx, coll, pipeline, fields, maxRows+1)
+}
+
+// Preview returns at most 50 rows, inferring columns when the editor omits them.
+func Preview(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage, fields []string) (Result, error) {
+	if len(fields) == 0 {
+		schema, err := Schema(ctx, coll, pipeline)
+		if err != nil {
+			return Result{}, err
+		}
+		for _, f := range schema {
+			fields = append(fields, f.Name)
+		}
+		if len(fields) == 0 {
+			return Result{Fields: []string{}, Rows: [][]any{}}, nil
+		}
+	}
+	return query(ctx, coll, pipeline, fields, 50)
+}
+func query(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage, fields []string, limit int64) (Result, error) {
 	if len(fields) == 0 || len(fields) > maxFields {
 		return Result{}, fmt.Errorf("%w: select 1 to %d fields", ErrInvalid, maxFields)
 	}
@@ -58,7 +78,7 @@ func Query(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage
 	}
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	cur, err := aggregate(ctx, coll, pipeline, maxRows+1)
+	cur, err := aggregate(ctx, coll, pipeline, limit)
 	if err != nil {
 		return Result{}, err
 	}

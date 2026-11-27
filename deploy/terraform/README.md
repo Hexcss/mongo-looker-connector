@@ -83,7 +83,33 @@ EXPECTED_VERSION="$(cat VERSION)" EXPECTED_REVISION="$(git rev-parse HEAD)" pyth
 deploy/sandbox/drift
 ```
 
-The smoke script checks that anonymous access fails, then uses a gcloud user identity token to verify health, build metadata, discovery, schema types, and the two ordered values. The drift check plans all three stacks using the expected region, digest, and invokers. Exit code 0 means no changes, 2 means a plan contains changes, and 1 means the check failed. To roll back the gateway, set the image URI to a previously published digest, plan and apply the gateway stack, then rerun smoke and drift.
+For the default IAM-only gateway, the smoke script checks that anonymous access fails, then uses a gcloud user identity token to verify health, build metadata, discovery, schema types, and the two ordered values. Follow the console instructions below when you enable administration. The drift check plans all three stacks using the expected region, digest, and invokers. Exit code 0 means no changes, 2 means a plan contains changes, and 1 means the check failed. To roll back, choose a previously verified digest that supports the deployed authentication mode, plan and apply the gateway stack, then rerun smoke and drift. A v0.1 image grants reporting access to every Cloud Run invoker. Keep administration-enabled deployments on a digest that enforces scoped reporting tokens.
+
+## Enable the v0.2 administration console
+
+For a v0.2 image, set `admin_members` on the **gateway** stack to the Google users who manage connections and reporting tokens. The operator applying this change also needs permission to create a project custom role, create a secret, and manage the secret and login service account IAM policies. Retain the intended image digest and reporting invokers. Terraform adds administrators to the service's invoker policy and provisions the following resources.
+
+| Resource | Access |
+| --- | --- |
+| `mlc-admin-metadata`, a Firestore Native Standard database in the configured region | The runtime identity receives `roles/datastore.user` with a condition matching this database. Its existing read-only role on the fixture is unchanged. |
+| `mlc-managed-connections`, one Secret Manager secret | A custom role bound on this secret lets the runtime add, access, list and destroy credential versions. The gateway writes the credential payload at runtime. |
+| `mlc-console-login`, a separate service account | Allowlisted users receive `roles/iam.serviceAccountOpenIdTokenCreator` on this identity. The identity receives no project roles. The launcher calls the IAM Credentials API to mint the console assertion. |
+| `mlc-sandbox`, the Cloud Run service | Allowlisted administrators receive `run.services.get` on this service so the launcher can discover its HTTPS URL. |
+
+A new deployment with `admin_members` omitted uses IAM-only gateway access. To suspend all console users after enabling administration, set `admin_members = []` and apply. Reporting continues to require scoped tokens, and the metadata and credentials remain protected. Removing a user from the list stops fresh assertion minting once IAM changes propagate. Previously minted assertions can last up to one hour. Review inherited IAM grants, especially project-wide service account token creator permissions, when choosing the project. [Google service account authentication roles](https://cloud.google.com/iam/docs/service-account-permissions)
+
+```bash
+export TF_VAR_admin_members="[\"user:$OPERATOR_ACCOUNT\"]"
+"$tf" -chdir="$stacks/gateway" plan -out=gateway.tfplan
+"$tf" -chdir="$stacks/gateway" apply gateway.tfplan
+VERIFY_ADMIN=1 EXPECTED_VERSION="$(cat VERSION)" EXPECTED_REVISION="$(git rev-parse HEAD)" python3 deploy/sandbox/smoke.py
+deploy/sandbox/drift
+python3 deploy/sandbox/console.py
+```
+
+Open the single-use loopback sign-in URL printed in your terminal. It opens `/admin/` and sets an HttpOnly, SameSite=Strict cookie scoped to the session’s random `.localhost` hostname. The launcher listens on a free port on `127.0.0.1`, obtains both ID tokens from your selected account, and refreshes them in memory for the one-hour session. Keep the sign-in URL private. For browser automation, read the first stdout line (`Open <URL>`) from a subprocess pipe and navigate there directly, with URL and trace logging disabled. Stop the launcher with Ctrl+C when finished.
+
+With administration enabled, Cloud Run invoker IAM is the first authorization check. Reporting clients also need the scoped token issued by a console administrator. Send the Cloud Run ID token in `X-Serverless-Authorization: Bearer <cloud-run-id-token>` and the reporting token in `Authorization: Bearer <reporting-token>` or `X-MLC-Token: <reporting-token>`. For administrator requests the launcher supplies `X-MLC-Admin-Assertion` with a Google-signed ID token for the login identity and this deployment's audience. [Cloud Run authentication headers](https://cloud.google.com/run/docs/authenticating/service-to-service) · [Generate an ID token](https://cloud.google.com/iam/docs/reference/credentials/rest/v1/projects.serviceAccounts/generateIdToken)
 
 ## Use existing MongoDB connections
 
@@ -113,7 +139,7 @@ gcloud run services proxy mlc-sandbox --project="$PROJECT_ID" --account="$OPERAT
   --region="$TF_VAR_region" --port=8085
 ```
 
-In a second terminal, check that the connection IDs are `billing` and `sales`, the sales database is `analytics`, and the collection list matches its allowlist.
+For an IAM-only deployment, use a second terminal to check that the connection IDs are `billing` and `sales`, the sales database is `analytics`, and the collection list matches its allowlist.
 
 ```bash
 base=http://127.0.0.1:8085/api/v1
@@ -124,6 +150,6 @@ curl -fsS "$base/query" -H 'Content-Type: application/json' \
   -d '{"connectionId":"sales","database":"analytics","collection":"orders","pipeline":[{"$limit":1}],"fields":["_id"]}'
 ```
 
-Run `deploy/sandbox/drift` with the same image, invokers and connection tfvars to verify the deployment. To test the Terraform configuration locally with Terraform 1.7 or later, initialize the gateway with `-backend=false` and run `terraform -chdir=deploy/terraform/gateway test -test-directory=plan-tests`. These tests use a mocked provider and remote state.
+Run `deploy/sandbox/drift` with the same image, invokers and connection tfvars to verify the deployment. To test the Terraform configuration locally with the Terraform version pinned in CI (1.17.2), initialize the gateway with `-backend=false` and run `terraform -chdir=deploy/terraform/gateway test -test-directory=plan-tests`. These tests use a mocked provider and remote state. Run `python3 -B deploy/sandbox/console_test.py` for the loopback session and request checks.
 
-The database and Cloud Run service have deletion protection. The bucket also has Terraform destruction protection. The database, image storage, state object versions, and requests can incur charges while the sandbox exists.
+Both databases, the managed credential secret and the Cloud Run service have deletion protection. The bucket also has Terraform destruction protection. The database, image storage, state object versions, and requests can incur charges while the sandbox exists.
