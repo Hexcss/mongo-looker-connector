@@ -60,12 +60,23 @@ def main():
         rows = request(host, "POST", "/api/v1/query", reporting, query)
         if rows != {"fields": fields, "rows": [["20261102153000", 17, "order-002"]]}:
             raise RuntimeError("Unexpected dated fixture or field order")
+        pipeline = [{"$sort": {"amount": -1, "_id": 1}}, {"$limit": 1},
+                    {"$project": {"_id": 0, "orderId": "$_id", "sales": "$amount"}}]
+        custom = {**grant, "pipeline": pipeline}
+        schema = request(host, "POST", "/api/v1/schema", reporting, custom)
+        if schema["fields"] != [{"name": "orderId", "type": "TEXT"}, {"name": "sales", "type": "NUMBER"}]:
+            raise RuntimeError("Custom pipeline returned an unexpected output schema")
+        for dates, expected in (({}, ["order-001", 42]), ({"dateRange": query["dateRange"]}, ["order-002", 17])):
+            rows = request(host, "POST", "/api/v1/query", reporting, {**custom, **dates, "fields": ["orderId", "sales"]})
+            if rows != {"fields": ["orderId", "sales"], "rows": [expected]}:
+                raise RuntimeError("Unexpected largest order from the custom pipeline")
         request(host, "POST", "/api/v1/query", reporting, {**query, "collection": "ungranted"}, expected=404)
         request(host, "GET", tokens, reporting, expected=403)
     finally:
         request(host, "DELETE", tokens + "/" + issued["token"]["id"], admin, expected=204)
     request(host, "GET", "/api/v1/connections", reporting, expected=401)
     print("Verified reporting identity, single-day order, field order, scope enforcement and revocation.")
+    print("Verified custom aggregation output fields and largest order with and without a source date range.")
 
 
 if __name__ == "__main__":
