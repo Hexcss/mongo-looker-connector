@@ -85,6 +85,9 @@ run "explicit_console_administrators" {
     condition = (
       !google_cloud_run_v2_service.gateway.invoker_iam_disabled &&
       toset(keys(google_cloud_run_v2_service_iam_member.invoker)) == setunion(var.invokers, var.admin_members) &&
+      google_project_iam_custom_role.console_discovery[0].permissions == toset(["run.services.get"]) &&
+      google_cloud_run_v2_service_iam_binding.console_discovery[0].members == var.admin_members &&
+      google_cloud_run_v2_service_iam_binding.console_discovery[0].name == google_cloud_run_v2_service.gateway.name &&
       google_service_account_iam_binding.console_login[0].role == "roles/iam.serviceAccountOpenIdTokenCreator" &&
       google_service_account_iam_binding.console_login[0].members == var.admin_members &&
       google_project_service.credentials[0].service == "iamcredentials.googleapis.com"
@@ -126,6 +129,7 @@ run "withhold_console_login" {
   assert {
     condition = (
       length(google_service_account_iam_binding.console_login) == 0 &&
+      length(google_cloud_run_v2_service_iam_binding.console_discovery) == 0 &&
       length(google_cloud_run_v2_service_iam_member.invoker) == 0 &&
       length(google_firestore_database.metadata) == 1 &&
       length(local.admin_env) == 5

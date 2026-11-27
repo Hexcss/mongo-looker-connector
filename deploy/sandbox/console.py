@@ -67,7 +67,8 @@ class ConsoleServer(ThreadingHTTPServer):
         self.cookie_name = "mlc_console_" + secrets.token_hex(8)
         self.cookie_value = secrets.token_urlsafe(32)
         self.expires = time.monotonic() + 3600
-        self.host = f"127.0.0.1:{self.server_port}"
+        # Cookies are scoped to hostnames across all ports. Give each session its own host.
+        self.host = f"mlc-{secrets.token_hex(16)}.localhost:{self.server_port}"
 
     def tokens(self):
         with self.lock:

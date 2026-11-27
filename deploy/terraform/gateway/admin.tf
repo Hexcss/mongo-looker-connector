@@ -44,6 +44,23 @@ resource "google_service_account_iam_binding" "console_login" {
   members            = local.admin_members
 }
 
+resource "google_project_iam_custom_role" "console_discovery" {
+  count       = local.admin_enabled ? 1 : 0
+  project     = var.project_id
+  role_id     = "mlcConsoleDiscovery"
+  title       = "Mongo Looker Connector console service discovery"
+  permissions = ["run.services.get"]
+}
+
+resource "google_cloud_run_v2_service_iam_binding" "console_discovery" {
+  count    = length(local.admin_members) > 0 ? 1 : 0
+  project  = var.project_id
+  location = google_cloud_run_v2_service.gateway.location
+  name     = google_cloud_run_v2_service.gateway.name
+  role     = google_project_iam_custom_role.console_discovery[0].name
+  members  = local.admin_members
+}
+
 resource "google_firestore_database" "metadata" {
   count                   = local.admin_enabled ? 1 : 0
   project                 = var.project_id

@@ -22,9 +22,9 @@ class ConsoleSessionTest(unittest.TestCase):
         self.addCleanup(self.server.shutdown)
 
     def local(self, path, method="GET", headers=None, body=None):
-        conn = http.client.HTTPConnection(self.server.host, timeout=3)
+        conn = http.client.HTTPConnection(*self.server.server_address, timeout=3)
         try:
-            conn.request(method, path, body, headers or {})
+            conn.request(method, path, body, {"Host": self.server.host, **(headers or {})})
             response = conn.getresponse()
             response.read()
             return response
@@ -32,6 +32,12 @@ class ConsoleSessionTest(unittest.TestCase):
             conn.close()
 
     def test_single_use_login_and_proxy_boundaries(self):
+        self.assertEqual(self.server.server_address[0], "127.0.0.1")
+        host, port = self.server.host.split(":")
+        self.assertRegex(host, r"^[a-z0-9-]+\.localhost$")
+        self.assertEqual(int(port), self.server.server_port)
+        with console.ConsoleServer("fixture.run.app", self.mint) as other:
+            self.assertNotEqual(host, other.host.split(":")[0])
         entry = self.server.entry_path
         for headers in ({"Host": "other.example.org"}, {"Origin": "https://other.example.org"},
                         {"Sec-Fetch-Site": "cross-site"}):
@@ -42,6 +48,7 @@ class ConsoleSessionTest(unittest.TestCase):
         cookie = response.getheader("Set-Cookie")
         self.assertIn("HttpOnly", cookie)
         self.assertIn("SameSite=Strict", cookie)
+        self.assertNotIn("domain=", cookie.lower())
         self.assertEqual(self.local(entry).status, 403)
         self.assertEqual(self.local("/api/v1/admin/tokens").status, 403)
 
