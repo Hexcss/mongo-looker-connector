@@ -72,3 +72,7 @@ A handled error looks like `{"error":{"code":"not_found","message":"Connection o
 | 415 | `unsupported_media_type` | The POST request requires JSON |
 | 502 | `database_error` | The driver could not complete the operation |
 | 504 | `timeout` | The database operation exceeded the request deadline |
+
+### Filter by a UTC date range
+
+On `POST /api/v1/query`, add `"dateRange":{"field":"orderedAt","startDate":"2026-11-01","endDate":"2026-11-30"}` to filter a BSON date on the source documents before running the report pipeline. Both calendar dates are inclusive. The gateway uses a native MongoDB range from midnight UTC on the first day to midnight UTC after the last day, so MongoDB can use an index on the date field. Nested paths such as `order.createdAt` are supported. Keys that require escaped dots or backslashes, empty path components, and dollar-prefixed path components are excluded. Omit the range for unfiltered queries.

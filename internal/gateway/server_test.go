@@ -166,3 +166,20 @@ func TestInvalidConfigFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestDateRangeEnvelope(t *testing.T) {
+	const prefix = `{"connectionId":"demo","database":"analytics","collection":"orders","fields":["amount"],"dateRange":`
+	for _, raw := range []string{
+		`null`, `{}`, `[]`,
+		`{"Field":"x","startDate":"2026-01-01","endDate":"2026-01-01"}`,
+		`{"field":"x","field":"y","startDate":"2026-01-01","endDate":"2026-01-01"}`,
+	} {
+		if _, err := parseReport([]byte(prefix + raw + "}")); err == nil {
+			t.Fatalf("accepted invalid date range: %s", raw)
+		}
+	}
+	req, err := parseReport([]byte(prefix + `{"field":"x","startDate":"2026-01-01","endDate":"2026-01-01"}}`))
+	if err != nil || req.dateRange == nil || req.dateRange.StartDate != "2026-01-01" {
+		t.Fatal("lost date range in request")
+	}
+}
