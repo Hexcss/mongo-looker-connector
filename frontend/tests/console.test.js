@@ -147,6 +147,15 @@ test('issue and revoke a narrowly scoped token at mobile width', async t => {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });
 
+test('an access denial outside the JSON API tells the operator how to recover', async t => {
+  const { page } = await fixture(t);
+  await page.route('**/api/v1/admin/connections', route => route.fulfill({
+    status: 403, contentType: 'text/html', body: '<h1>Forbidden</h1>'
+  }));
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await page.getByText(/open a fresh console sign-in link/i).waitFor();
+});
+
 test('a failed catalog fetch can be retried and a new empty installation stays usable', async t => {
   const { page } = await fixture(t);
   let fails = true;

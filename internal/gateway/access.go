@@ -27,6 +27,7 @@ type catalog interface {
 }
 
 type administration struct {
+	logins loginStore
 	store  catalog
 	verify func(context.Context, string) bool
 }
@@ -58,6 +59,25 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (*http.Reques
 			return nil, false
 		}
 		raw = auth
+	}
+	// Exchange authenticates with the single-use ticket in its own handler.
+	if s.admin.logins != nil && r.URL.Path == "/api/v1/hosted/exchange" && r.Method == "POST" {
+		return r, true
+	}
+	if session := r.Header.Get("X-MLC-Hosted-Session"); session != "" {
+		if s.admin.logins == nil || !adminPath || raw != "" || proof != "" || len(session) != 43 {
+			fail(w, 401, "unauthorized", "Invalid browser session.")
+			return nil, false
+		}
+		if err := s.admin.logins.CheckSession(r.Context(), session); err != nil {
+			controlError(w, err)
+			return nil, false
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get("X-MLC-Request") != "console" {
+			fail(w, 403, "forbidden", "The administrator request header is required.")
+			return nil, false
+		}
+		return r, true
 	}
 	if proof != "" {
 		if raw != "" || len(proof) > 8192 || !s.admin.verify(r.Context(), proof) {

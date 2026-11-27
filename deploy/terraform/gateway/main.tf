@@ -164,7 +164,7 @@ resource "google_cloud_run_v2_service" "gateway" {
         }
       }
       dynamic "env" {
-        for_each = local.admin_env
+        for_each = merge(local.admin_env, var.hosted_console ? { MLC_HOSTED_LOGIN_ENABLED = "true" } : {})
         content {
           name  = env.key
           value = env.value

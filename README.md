@@ -6,10 +6,10 @@
 
 ## Open the administration console
 
-Manage MongoDB connections and credentials, preview read-only aggregations, and issue collection-scoped reporting tokens from one browser console. For an admin-enabled Google Cloud deployment, run the following command as an allowlisted operator and open the single-use link it prints.
+Manage MongoDB connections and credentials, preview read-only aggregations, and issue collection-scoped reporting tokens from the hosted browser console. On an installation with hosted access enabled, this command opens a signed-in session in your default browser. You can close the terminal afterward.
 
 ```sh
-PROJECT_ID=your-project-id OPERATOR_ACCOUNT=your-account python3 deploy/sandbox/console.py
+PROJECT_ID=your-project-id OPERATOR_ACCOUNT=your-account python3 deploy/sandbox/hosted_console.py
 ```
 
 [Console guide](docs/administration.md) · [Deployment and access setup](deploy/terraform/README.md)
@@ -43,7 +43,7 @@ Try `GET /api/v1/connections` to discover the configured connection, or send the
 ```mermaid
 flowchart LR
     client["API client"] -->|HTTPS| gateway["Go gateway"]
-    looker["Looker Studio connector · planned"] -.-> gateway
+    looker["Looker Studio community connector"] -->|Scoped reporting token + Google identity| gateway
     gateway -->|Read-only aggregation| mongo["MongoDB"]
     gateway -->|Workload OIDC| firestore["Firestore Enterprise with MongoDB compatibility"]
 ```
@@ -56,7 +56,7 @@ Operators define named connections and their database and collection allowlists 
 | Firestore Enterprise with MongoDB compatibility | The sandbox smoke exercises a named database through Cloud Run with workload identity and read-only IAM. See the roadmap for run evidence. |
 | MongoDB Atlas | Uses the MongoDB driver connection path. An Atlas deployment is a separate verification milestone. |
 
-**Looker Studio integration is planned for v0.3.** v0.2 ships the HTTP gateway and browser administration console. The [roadmap](docs/roadmap/README.md) follows the project through the connector, managed datasets, and the self-hosted v1.0 release.
+**Connect a Looker Studio report.** Install the Apps Script community connector against your private gateway, enter a collection-scoped token, then select the connection, database, and collection. Select a BSON date field to enable report date ranges. [Connector setup](docs/looker-studio.md) · [Roadmap](docs/roadmap/README.md)
 
 ## Deploy on Google Cloud
 

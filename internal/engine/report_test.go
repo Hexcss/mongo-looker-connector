@@ -83,7 +83,7 @@ func TestNullOnlyAndDriftingTypesAfterSchemaSample(t *testing.T) {
 
 func TestInvalidRequestsRejectedBeforeDatabase(t *testing.T) {
 	for _, fields := range [][]string{nil, {}, {"x", "x"}, {""}, {strings.Repeat("x", 513)}} {
-		if _, err := Query(context.Background(), nil, nil, fields); !errors.Is(err, ErrInvalid) {
+		if _, err := Query(context.Background(), nil, nil, fields, nil); !errors.Is(err, ErrInvalid) {
 			t.Errorf("expected invalid fields: %v", err)
 		}
 	}
