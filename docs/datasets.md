@@ -45,6 +45,8 @@ For HTTP clients, use the standard schema and query endpoints with the same virt
 
 With the example definition and a grant for both fields, the response contains `[[42,"order-001"]]`. Equality filters and UTC date ranges operate on published fields after the saved pipeline. Field restrictions also apply to filter and date fields. The reporting client can submit an empty pipeline or the connector's standard ascending `_id` sort. Define transformations in the published pipeline.
 
+Use native BSON string values for text equality and JSON numbers within the range −9,007,199,254,740,991 through 9,007,199,254,740,991 for numeric equality. Date equality accepts an exact UTC timestamp in `YYYYMMDDhhmmss` format. Use `dateRange` to select whole UTC days. Multiple equality filters must all match. For Looker Studio charts that fetch fields in batches, preserve a unique `_id` in the pipeline output so each batch sorts rows consistently. You can omit `_id` from the published schema.
+
 ## Edit, republish and revoke
 
 Editing or deleting a dataset requires its latest revision. A concurrent edit returns HTTP 409 so the operator can reload first. Republishing issues a new revision. Issue replacement dataset grants for that revision, including when a deleted ID is reused. Rotating a managed source credential also requires the administrator to review and republish the dataset against the current source before granting access again.

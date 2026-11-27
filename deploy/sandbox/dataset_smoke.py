@@ -79,8 +79,13 @@ def verify():
         query(wide, dict(dated, fields=["orderId", "sales"]), [["order-002", 17]], "MISS")
         query(wide, dict(base_query, filters={"sales": 42}), [["order-001"]], "MISS")
         query(wide, dict(base_query, filters={"sales": 17}), [["order-002"]], "MISS")
+        query(wide, dict(base_query, filters={"sales": 0}), [], "MISS")
+        if request(host, "POST", API + "schema", wide, namespace) != {"fields": fields}:
+            raise RuntimeError("Published schema changed after an empty result")
+        date_only = dict(base_query, dateRange=dated["dateRange"])
+        query(wide, date_only, [["order-002"]], "MISS")
         for body in (dated, dict(base_query, fields=["sales"]), dict(base_query, filters={"sales": 42}),
-                     dict(base_query, pipeline=[{"$project": {"hidden": "$amount"}}])):
+                     date_only, dict(base_query, pipeline=[{"$project": {"hidden": "$amount"}}])):
             request(host, "POST", API + "query", limited, body, (400, 403, 404))
         request(host, "POST", API + "query", limited, dict(source, fields=["amount"]), 404)
         admin_call("DELETE", wide_path, None, 204)
