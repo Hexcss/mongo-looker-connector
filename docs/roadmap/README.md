@@ -18,6 +18,7 @@ The first milestone proves that a company can query its own MongoDB data through
 | Three protected branches, Apache 2.0, and contribution workflow | [Foundation PR](https://github.com/Hexcss/mongo-looker-connector/pull/1) |
 | Bounded aggregation and schema conversion | [Engine PR and race-enabled Go checks](https://github.com/Hexcss/mongo-looker-connector/pull/3) |
 | State, registry, database, and read-only runtime identity | [Terraform PR](https://github.com/Hexcss/mongo-looker-connector/pull/4) |
+| Named connections, scoped discovery, and versioned HTTP interfaces | [Gateway API PR](https://github.com/Hexcss/mongo-looker-connector/pull/5) |
 | Local reporting path | The Docker smoke discovers `analytics.orders`, checks the inferred amount type, reads the known order as `[42,"order-001"]`, and verifies the collection boundary. Run `./tests/smoke-local.sh` to reproduce. |
 | Staged image and cloud verification | [Staging promotion, checks, and sandbox evidence](https://github.com/Hexcss/mongo-looker-connector/pull/2) |
 | Published version | [v0.1.0 release notes and verified image digest](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.1.0) |
