@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.1](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.3.1) · 2026-11-27
+
+- Preserve the same-origin information Firefox needs for console sign-in, preview and sign-out.
+
 ## [0.3.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.3.0) · 2026-11-27
 
 - Serve the admin console at a permanent HTTPS address with short-lived, single-use sign-in and a secure browser session.
