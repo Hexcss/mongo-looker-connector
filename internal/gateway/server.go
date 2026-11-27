@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"maps"
 	"mime"
 	"net/http"
 	"net/url"
@@ -31,7 +30,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	s.mux.ServeHTTP(w, r.WithContext(ctx))
+	r = r.WithContext(ctx)
+	if s.admin != nil && r.URL.Path != "/health" && r.URL.Path != "/version" {
+		var ok bool
+		r, ok = s.authorize(w, r)
+		if !ok {
+			return
+		}
+	}
+	s.mux.ServeHTTP(w, r)
 }
 
 func (s *Server) routes(version, revision string) {
@@ -42,7 +49,12 @@ func (s *Server) routes(version, revision string) {
 		reply(w, http.StatusOK, map[string]string{"version": version, "revision": revision})
 	})
 	s.mux.HandleFunc("GET /api/v1/connections", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, http.StatusOK, map[string][]string{"connections": slices.Sorted(maps.Keys(s.connections))})
+		ids, err := s.visibleIDs(r)
+		if err != nil {
+			controlError(w, err)
+			return
+		}
+		reply(w, http.StatusOK, map[string][]string{"connections": ids})
 	})
 	s.mux.HandleFunc("GET /api/v1/connections/{id}/databases", s.listDatabases)
 	s.mux.HandleFunc("GET /api/v1/collections", s.listCollections)
@@ -65,11 +77,12 @@ type discoveryContext struct{ context.Context }
 func (discoveryContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 
 func (s *Server) listDatabases(w http.ResponseWriter, r *http.Request) {
-	c, ok := s.connections[r.PathValue("id")]
-	if !ok {
-		notConfigured(w)
+	c, closeClient, err := s.resolve(r, r.PathValue("id"), "", "")
+	if err != nil {
+		controlError(w, err)
 		return
 	}
+	defer closeClient()
 	ctx, cancel := c.operationContext(r.Context())
 	defer cancel()
 	names, err := c.client.ListDatabaseNames(discoveryContext{ctx}, bson.D{})
@@ -89,8 +102,13 @@ func (s *Server) listCollections(w http.ResponseWriter, r *http.Request) {
 		invalidRequest(w)
 		return
 	}
-	c := s.connections[params.Get("connectionId")]
 	db := params.Get("database")
+	c, closeClient, err := s.resolve(r, params.Get("connectionId"), db, "")
+	if err != nil {
+		controlError(w, err)
+		return
+	}
+	defer closeClient()
 	allowed := c.databases[db]
 	if allowed == nil {
 		notConfigured(w)
@@ -192,11 +210,12 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		invalidRequest(w)
 		return
 	}
-	c := s.connections[req.connection]
-	if _, ok := slices.BinarySearch(c.databases[req.database], req.collection); !ok {
-		notConfigured(w)
+	c, closeClient, err := s.resolve(r, req.connection, req.database, req.collection)
+	if err != nil {
+		controlError(w, err)
 		return
 	}
+	defer closeClient()
 	coll := c.client.Database(req.database).Collection(req.collection)
 	ctx, cancel := c.operationContext(r.Context())
 	defer cancel()
@@ -209,7 +228,11 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		reply(w, http.StatusOK, map[string][]engine.Field{"fields": fields})
 		return
 	}
-	result, err := engine.Query(ctx, coll, req.pipeline, req.fields)
+	run := engine.Query
+	if r.Pattern == "POST /api/v1/admin/preview" {
+		run = engine.Preview
+	}
+	result, err := run(ctx, coll, req.pipeline, req.fields)
 	if err != nil {
 		operationError(w, ctx, err)
 		return

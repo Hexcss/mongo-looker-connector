@@ -98,7 +98,7 @@ locals {
 }
 
 resource "google_project_service" "secret_manager" {
-  count              = length(var.connections) > 0 ? 1 : 0
+  count              = length(var.connections) > 0 || local.admin_enabled ? 1 : 0
   project            = var.project_id
   service            = "secretmanager.googleapis.com"
   disable_on_destroy = false
@@ -120,7 +120,12 @@ resource "google_cloud_run_v2_service" "gateway" {
   ingress              = "INGRESS_TRAFFIC_ALL"
   invoker_iam_disabled = false
   deletion_protection  = true
-  depends_on           = [google_secret_manager_secret_iam_member.reader]
+  depends_on = [
+    google_secret_manager_secret_iam_member.reader,
+    google_project_iam_member.metadata_writer,
+    google_secret_manager_secret_iam_member.managed_versions,
+    google_service_account_iam_binding.console_login,
+  ]
 
   template {
     max_instance_request_concurrency = 4
@@ -158,6 +163,13 @@ resource "google_cloud_run_v2_service" "gateway" {
           }
         }
       }
+      dynamic "env" {
+        for_each = local.admin_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
       env {
         name  = "GATEWAY_CONNECTIONS"
         value = length(var.connections) == 0 ? jsonencode(local.demo) : jsonencode(local.named)
@@ -167,6 +179,10 @@ resource "google_cloud_run_v2_service" "gateway" {
 
   lifecycle {
     precondition {
+      condition     = !local.admin_enabled || alltrue([for c in var.connections : c.secret_id != "mlc-managed-connections"])
+      error_message = "Reserve mlc-managed-connections for console-managed credential versions."
+    }
+    precondition {
       condition     = startswith(var.image_uri, "${local.sandbox.registry}/")
       error_message = "Publish the release image to this sandbox's Artifact Registry repository."
     }
@@ -174,7 +190,7 @@ resource "google_cloud_run_v2_service" "gateway" {
 }
 
 resource "google_cloud_run_v2_service_iam_member" "invoker" {
-  for_each = var.invokers
+  for_each = setunion(var.invokers, local.admin_members)
   project  = var.project_id
   location = google_cloud_run_v2_service.gateway.location
   name     = google_cloud_run_v2_service.gateway.name

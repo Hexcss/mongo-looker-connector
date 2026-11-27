@@ -1,0 +1,21 @@
+{
+  "name": "mongo-looker-console",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "test": "node --test tests/console.test.js",
+    "smoke": "node tests/smoke.js"
+  },
+  "dependencies": {
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "playwright": "1.57.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.8"
+  }
+}
