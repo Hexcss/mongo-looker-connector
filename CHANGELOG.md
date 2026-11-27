@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.5.0) · 2026-11-27
+
+- Enter a read-only MongoDB aggregation pipeline while configuring a raw collection data source in Looker Studio. The connector discovers fields from the aggregation output and uses the saved pipeline for chart queries.
+- Optionally select a source date field to apply the report's UTC date range before aggregation.
+
 ## [0.4.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.4.0) · 2026-11-27
 
 - Publish virtual MongoDB datasets with reusable pipelines, explicit typed schemas and field-scoped reporting grants.

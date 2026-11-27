@@ -21,10 +21,27 @@ Create one private Apps Script deployment per company gateway. Report authors au
 
 1. In the admin console, issue a reporting token for a single collection and copy it once.
 2. Open `https://lookerstudio.google.com/datasources/create?connectorId=DEPLOYMENT_ID` with your deployment ID. Authorize the Google account included in `report_members`, then enter the reporting token in the **Key** prompt.
-3. Select a connection, database and collection. If the collection contains BSON dates, choose the field that should control the report's UTC date range. When there is exactly one eligible date field the connector uses it by default. With multiple date fields it asks for an explicit selection. The connector uses the gateway's sampled schema. [Field types and limits](query.md)
+3. Select a connection, database and collection. Choose **Collection** to use its sampled fields. If the collection contains BSON dates, choose the field that should control the report's UTC date range. When there is exactly one eligible date field the connector uses it by default. With multiple date fields it asks for an explicit selection. [Field types and limits](query.md)
 4. Click **Connect** and **Create report**. In the sandbox, select `demo → mlc-sandbox → orders` and `orderedAt`. Add a table using dimension `_id` and metric `amount`. Select **November 1–2, 2026** to display both orders. Narrow the range to **November 1** to display only `order-001` with amount **42**.
 
 The gateway pushes the selected dates into MongoDB as an inclusive UTC calendar range. Report filters on other dimensions are applied by Looker Studio. Each gateway query can return up to 1,000 rows. A query that exceeds the limit returns an error so a report author can narrow the date range. [Community Connector API](https://developers.google.com/looker-studio/connector/reference) · [Gateway date filtering](api.md#filter-by-a-utc-date-range)
+
+## Enter a custom aggregation
+
+1. Use a reporting token with a grant for the raw collection you want to query. In the sandbox, select **demo → mlc-sandbox → orders**.
+2. Choose **Custom aggregation**. Paste the pipeline below as a JSON array in the editor. It ranks orders by amount and gives the output columns names you can use in a chart.
+
+   ```json
+   [
+     {"$sort": {"amount": -1, "_id": 1}},
+     {"$limit": 1},
+     {"$project": {"_id": 0, "orderId": "$_id", "sales": "$amount"}}
+   ]
+   ```
+
+3. Choose **No date filter** and click **Connect**. Add a table with dimension `orderId` and metric `sales`. On the sandbox fixture the result is `order-001` and `42`. To find the largest order *within* a report date range, select the source date field `orderedAt` during setup. For November 2, 2026, the result is `order-002` and `17`. MongoDB applies the date range before sorting and limiting, even though the pipeline omits the date from its output.
+
+Looker Studio saves the pipeline with the data source. Edit the connection to change it and refresh the fields after changing its output. The gateway samples up to 100 output documents to discover columns, so the pipeline needs to return a sample row during setup. Include a deterministic sort with a unique tie-breaker for charts that fetch fields in batches. The gateway accepts up to 32 read-only stages and enforces the collection grant for schema and data requests. Dataset-only tokens use the administrator's published pipeline. [Supported aggregation stages and limits](query.md) · [Looker Studio setup controls](https://developers.google.com/apps-script/reference/data-studio/text-area)
 
 ## Troubleshoot authorization
 

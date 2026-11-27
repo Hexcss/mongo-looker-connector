@@ -18,6 +18,8 @@ PROJECT_ID=your-project-id OPERATOR_ACCOUNT=your-account python3 deploy/sandbox/
 
 Turn a collection into a reporting view with a saved aggregation and a fixed schema. In the admin console, publish a dataset, then issue a token for its permitted fields. In Looker Studio, choose **@datasets → published → your dataset**. Repeated identical gateway queries can use a token-isolated cache for up to 60 seconds. [Publish the orders example](docs/datasets.md)
 
+Report authors with a raw collection grant can also choose **Custom aggregation** during Looker Studio data source setup and paste a MongoDB pipeline. That data source uses the pipeline’s output fields in charts. [Try a custom aggregation](docs/looker-studio.md#enter-a-custom-aggregation)
+
 ## Run your first query
 
 With Docker Compose and curl installed, run these commands from the repository root. The demo starts the gateway on `127.0.0.1:8080` and seeds a local MongoDB with two synthetic orders.
