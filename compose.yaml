@@ -1,0 +1,27 @@
+services:
+  mongo:
+    build: ./tests/local
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: fixture-admin
+      MONGO_INITDB_ROOT_PASSWORD: local-fixture-admin
+    tmpfs:
+      - /data/db
+      - /data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "mongodb://reporter:local-demo-only@mongo:27017/analytics", "--eval", "quit(db.orders.countDocuments({}) === 2 ? 0 : 1)"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+  gateway:
+    build:
+      context: .
+      args:
+        REVISION: ${GATEWAY_REVISION:-dev}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      GATEWAY_CONNECTIONS: '[{"id":"demo","uriEnv":"MONGODB_URI","databases":{"analytics":["orders"]}}]'
+      MONGODB_URI: mongodb://reporter:local-demo-only@mongo:27017/analytics
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"

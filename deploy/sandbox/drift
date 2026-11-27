@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Exit 0 for clean state, 2 for drift or 1 for an error.
+set -eu
+: "${PROJECT_ID:?Set PROJECT_ID}"
+: "${TF_VAR_image_uri:?Set TF_VAR_image_uri to the expected release digest}"
+root=$(cd "$(dirname "$0")/../terraform" && pwd)
+status=0
+for stack in bootstrap sandbox gateway; do
+  "$root/with-account" -chdir="$root/$stack" init -input=false -lockfile=readonly -backend-config="bucket=$PROJECT_ID-tfstate"
+  if "$root/with-account" -chdir="$root/$stack" plan -input=false -detailed-exitcode; then
+    continue
+  else
+    result=$?
+    if [ "$result" -eq 2 ]; then
+      status=2
+    else
+      exit "$result"
+    fi
+  fi
+done
+exit "$status"
