@@ -16,10 +16,11 @@ import (
 )
 
 type Grant struct {
-	ConnectionID string `json:"connectionId" firestore:"connectionId"`
-	Database     string `json:"database" firestore:"database"`
-	Collection   string `json:"collection" firestore:"collection"`
-	Generation   string `json:"generation,omitempty" firestore:"generation"`
+	Fields       []string `json:"fields,omitempty" firestore:"fields,omitempty"`
+	ConnectionID string   `json:"connectionId" firestore:"connectionId"`
+	Database     string   `json:"database" firestore:"database"`
+	Collection   string   `json:"collection" firestore:"collection"`
+	Generation   string   `json:"generation,omitempty" firestore:"generation"`
 }
 
 type Token struct {
@@ -72,12 +73,27 @@ func (s *Store) Issue(ctx context.Context, label string, grants []Grant) (Token,
 	if !validName(label) || len(label) > 128 || len(grants) == 0 || len(grants) > 256 {
 		return Token{}, "", ErrInvalid
 	}
-	seen := make(map[Grant]bool, len(grants))
+	seen := make(map[[3]string]bool, len(grants))
 	for _, g := range grants {
-		if !connectionID.MatchString(g.ConnectionID) || !validName(g.Database) || !validName(g.Collection) || !validName(g.Generation) || seen[g] {
+		key := [3]string{g.ConnectionID, g.Database, g.Collection}
+		if !validName(g.Database) || !validName(g.Collection) || !validName(g.Generation) || seen[key] {
 			return Token{}, "", ErrInvalid
 		}
-		seen[g] = true
+		if g.ConnectionID == DatasetConnection {
+			if g.Database != DatasetDatabase || !connectionID.MatchString(g.Collection) || len(g.Fields) == 0 || len(g.Fields) > 256 {
+				return Token{}, "", ErrInvalid
+			}
+			names := map[string]bool{}
+			for _, name := range g.Fields {
+				if !validName(name) || len(name) > 512 || names[name] {
+					return Token{}, "", ErrInvalid
+				}
+				names[name] = true
+			}
+		} else if !connectionID.MatchString(g.ConnectionID) || len(g.Fields) != 0 {
+			return Token{}, "", ErrInvalid
+		}
+		seen[key] = true
 	}
 	row, raw := newBearer()
 	row.Label = label
