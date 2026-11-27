@@ -56,9 +56,9 @@ try {
   await page.getByRole('region', { name: 'Reporting tokens' }).or(page.getByRole('heading', { name: 'No access tokens yet' })).waitFor();
   await page.getByRole('link', { name: 'Query preview', exact: true }).click();
   const { MLC_SMOKE_CONNECTION, MLC_SMOKE_DATABASE, MLC_SMOKE_COLLECTION } = process.env;
-  if (MLC_SMOKE_CONNECTION) await page.getByLabel('Connection', { exact: true }).selectOption(MLC_SMOKE_CONNECTION);
-  if (MLC_SMOKE_DATABASE) await page.getByLabel('Database', { exact: true }).selectOption(MLC_SMOKE_DATABASE);
-  if (MLC_SMOKE_COLLECTION) await page.getByLabel('Collection', { exact: true }).selectOption(MLC_SMOKE_COLLECTION);
+  if (MLC_SMOKE_CONNECTION) await page.getByRole('combobox', { name: 'Connection', exact: true }).selectOption(MLC_SMOKE_CONNECTION);
+  if (MLC_SMOKE_DATABASE) await page.getByRole('combobox', { name: 'Database', exact: true }).selectOption(MLC_SMOKE_DATABASE);
+  if (MLC_SMOKE_COLLECTION) await page.getByRole('combobox', { name: 'Collection', exact: true }).selectOption(MLC_SMOKE_COLLECTION);
   await page.getByLabel('Aggregation pipeline').fill('[{"$limit":1}]');
   const response = page.waitForResponse(res => new URL(res.url()).pathname === '/api/v1/admin/preview');
   await page.getByRole('button', { name: 'Run preview' }).click();
