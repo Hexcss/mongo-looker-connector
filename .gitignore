@@ -169,3 +169,7 @@ vite.config.ts.timestamp-*
 !*.example.tfvars.json
 crash.log
 crash.*.log
+
+# Python launcher and sandbox verification
+__pycache__/
+*.pyc
