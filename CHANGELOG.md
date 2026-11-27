@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.2.0) · 2026-11-27
+
+- Add a private administration console for managing connections, rotating credentials, and previewing up to 50 aggregation rows.
+- Issue one-time reporting credentials scoped to specific connections, databases, and collections. Changes and revocation take effect on subsequent requests.
+- Provision a dedicated configuration database, managed secret, and Google-authenticated console login through Terraform.
+
 ## [0.1.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.1.0) · 2026-11-27
 
 - Discover allowlisted MongoDB connections, databases, and collections with the Go HTTP API.
