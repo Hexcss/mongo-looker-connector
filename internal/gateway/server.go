@@ -99,7 +99,15 @@ func (s *Server) listCollections(w http.ResponseWriter, r *http.Request) {
 	parent, cancel := c.operationContext(r.Context())
 	defer cancel()
 	ctx := discoveryContext{parent}
-	cursor, err := c.client.Database(db).ListCollections(ctx, bson.D{}, options.ListCollections().SetNameOnly(true))
+	database := c.client.Database(db)
+	opts := options.ListCollections().SetNameOnly(true)
+	cursor, err := database.ListCollections(ctx, bson.D{}, opts)
+	var commandErr mongo.CommandError
+	if errors.As(err, &commandErr) && commandErr.Code == 13 {
+		// MongoDB permits find-only identities to list their own collections
+		// with this flag. Firestore accepts the initial name-only command.
+		cursor, err = database.ListCollections(ctx, bson.D{}, opts.SetAuthorizedCollections(true))
+	}
 	if err != nil {
 		operationError(w, ctx, err)
 		return

@@ -16,6 +16,8 @@ Set `GATEWAY_CONNECTIONS` to a JSON array. Each entry grants access to the named
 
 Supply the complete driver URI through the named environment variable. On Cloud Run, mount a Secret Manager version as that environment variable. Every connection ID must be unique and contain 1–64 ASCII letters, digits, hyphens or underscores. Each connection needs at least one database and each database needs at least one collection. Restart the service after changing its configuration.
 
+Collection discovery asks for names only. If MongoDB returns `Unauthorized` (code 13), the gateway retries with `authorizedCollections: true`. This lets a MongoDB identity with collection-specific read access discover its visible collections. The gateway applies the same configured allowlist to both responses.
+
 The listener uses `PORT` (default `8080`). For local development publish the container port on `127.0.0.1`. In Cloud Run, require authenticated invocations and grant `roles/run.invoker` to the permitted callers. An authorized caller can read all configured namespaces. Send a Google-signed ID token with the service URL as its audience in the `Authorization: Bearer` header. [Cloud Run authentication](https://cloud.google.com/run/docs/authenticating/service-to-service)
 
 For Firestore Enterprise with MongoDB compatibility, use a connection per database. The Go driver accepts the Firestore URI with load balancing, TLS, retryable writes disabled, and GCP machine OIDC. The gateway uses the Cloud Run service identity and discovers names with empty filters. [Firestore connection instructions](https://cloud.google.com/firestore/mongodb-compatibility/docs/connect) · [Command compatibility](https://cloud.google.com/firestore/mongodb-compatibility/docs/behavior-differences)
