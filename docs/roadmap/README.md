@@ -38,6 +38,8 @@ The first milestone proves that a company can query its own MongoDB data through
 - The [sandbox reporting smoke](../../deploy/sandbox/report_smoke.py) tests the real reporting identity and checks that a single-day range returns only the second order. The [browser smoke](../../frontend/tests/hosted-smoke.js) exercises hosted sign-in, the largest-order preview, replay rejection and sign-out.
 - The operator opened the sandbox report with Apps Script deployment version 2 and confirmed that it rendered. The Google-hosted runtime issued nine successful data queries. An independent check verified that November 1 selects the order for 42 and November 1–2 includes the second order for 17. [Implementation](https://github.com/Hexcss/mongo-looker-connector/pull/12) · [Credential and sign-out corrections](https://github.com/Hexcss/mongo-looker-connector/pull/14) · [Sandbox verification](https://github.com/Hexcss/mongo-looker-connector/pull/15)
 
+The [v0.3.1 maintenance release](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.3.1) tracks Firefox compatibility for hosted sign-in and administration requests.
+
 ## Next milestone
 
 v0.4 adds reusable virtual datasets with stable schemas, field restrictions and permission-aware caching. Live Atlas verification remains a separate provider milestone.
