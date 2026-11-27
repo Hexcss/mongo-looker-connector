@@ -21,7 +21,7 @@ Create one private Apps Script deployment per company gateway. Report authors au
 
 1. In the admin console, issue a reporting token for a single collection and copy it once.
 2. Open `https://lookerstudio.google.com/datasources/create?connectorId=DEPLOYMENT_ID` with your deployment ID. Authorize the Google account included in `report_members`, then enter the reporting token in the **Key** prompt.
-3. Select a connection, database and collection. If the collection contains BSON dates, choose the field that should control the report's UTC date range. The connector uses the gateway's sampled schema. [Field types and limits](query.md)
+3. Select a connection, database and collection. If the collection contains BSON dates, choose the field that should control the report's UTC date range. When there is exactly one eligible date field the connector uses it by default. With multiple date fields it asks for an explicit selection. The connector uses the gateway's sampled schema. [Field types and limits](query.md)
 4. Click **Connect** and **Create report**. In the sandbox, select `demo → mlc-sandbox → orders` and `orderedAt`. Add a table using dimension `_id` and metric `amount`. Select **November 1–2, 2026** to display both orders. Narrow the range to **November 1** to display only `order-001` with amount **42**.
 
 The gateway pushes the selected dates into MongoDB as an inclusive UTC calendar range. Report filters on other dimensions are applied by Looker Studio. Each gateway query can return up to 1,000 rows. A query that exceeds the limit returns an error so a report author can narrow the date range. [Community Connector API](https://developers.google.com/looker-studio/connector/reference) · [Gateway date filtering](api.md#filter-by-a-utc-date-range)

@@ -138,3 +138,20 @@ test('typed schema, field subsets and date intervals compose with Looker filteri
     pipeline: [{$sort: {_id: 1}}], fields: ['amount', '_id'], dateRange: {field: 'order.date', ...range}});
   assert.throws(() => api.getData({configParams: params, fields: [{name: 'amount'}]}), /date range/);
 });
+
+test('date-free collections connect directly and one eligible date defaults without selection', () => {
+  const {api, settings, calls} = connector();
+  api.setCredentials({key});
+  const {dateField, ...namespace} = params;
+  const request = {configParams: namespace, dateRange: range, fields: [{name: 'amount'}, {name: '_id'}]};
+  assert.equal(api.getConfig({configParams: namespace}).stepped, false);
+  api.getData(request);
+  assert.equal(calls.at(-1).data.dateRange.field, 'order.date');
+  settings.fields = fields.concat({name: 'shipped', type: 'YEAR_MONTH_DAY_SECOND'});
+  assert.equal(api.getConfig({configParams: namespace}).stepped, true);
+  assert.throws(() => api.getData(request), /Choose a report date field/);
+  settings.fields = fields.slice(0, 2);
+  assert.equal(api.getConfig({configParams: namespace}).dateRequired, false);
+  api.getData({...request, dateRange: undefined});
+  assert.equal(calls.at(-1).data.dateRange, undefined);
+});

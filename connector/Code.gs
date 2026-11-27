@@ -110,7 +110,10 @@ function getConfig(request) {
   const fields = read_('schema', namespace_(params)).fields;
   if (!fields.length) fail_('The collection has no sampled fields. Choose a collection containing documents.');
   const dates = fields.filter(selectableDate_).map(field => field.name);
-  if (dates.length) choose('dateField', 'Report date field (UTC)', dates, false);
+  if (dates.length) {
+    const selected = choose('dateField', 'Report date field (UTC)', dates, dates.length > 1);
+    if (dates.length > 1 && !selected) return config.build();
+  }
   config.setDateRangeRequired(dates.length > 0);
   config.setIsSteppedConfig(false);
   return config.build();
@@ -152,11 +155,12 @@ function getData(request) {
   body.pipeline = [{$sort: {_id: 1}}];
   body.fields = schema.map(field => field.label);
   const dateFields = fields.filter(selectableDate_);
-  if (params.dateField) {
-    if (!dateFields.some(f => f.name === params.dateField) || !request.dateRange) {
+  const dateField = params.dateField || (request.dateRange && dateFields.length === 1 && dateFields[0].name);
+  if (dateField) {
+    if (!dateFields.some(f => f.name === dateField) || !request.dateRange) {
       fail_('Refresh the data source and select an available date field and report date range.');
     }
-    body.dateRange = {field: params.dateField, startDate: request.dateRange.startDate, endDate: request.dateRange.endDate};
+    body.dateRange = {field: dateField, startDate: request.dateRange.startDate, endDate: request.dateRange.endDate};
   } else if (request.dateRange && dateFields.length) {
     fail_('Choose a report date field in the data source configuration.');
   }
