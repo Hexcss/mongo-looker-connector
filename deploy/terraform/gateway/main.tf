@@ -164,7 +164,10 @@ resource "google_cloud_run_v2_service" "gateway" {
         }
       }
       dynamic "env" {
-        for_each = merge(local.admin_env, var.hosted_console ? { MLC_HOSTED_LOGIN_ENABLED = "true" } : {})
+        for_each = merge(local.admin_env, var.hosted_console ? { MLC_HOSTED_LOGIN_ENABLED = "true" } : {}, var.looker_handoff == null ? {} : {
+          MLC_LOOKER_CONNECTOR_ID   = var.looker_handoff.connector_id
+          MLC_LOOKER_GATEWAY_ORIGIN = var.looker_handoff.gateway_origin
+        })
         content {
           name  = env.key
           value = env.value

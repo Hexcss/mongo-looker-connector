@@ -82,3 +82,11 @@ On `POST /api/v1/query`, add `"dateRange":{"field":"orderedAt","startDate":"2026
 Signed-in operators use `GET /api/v1/admin/datasets` to list definitions and `POST` on the same path to publish one. Update or delete with `PUT` or `DELETE /api/v1/admin/datasets/{id}` and the current `revision`. To grant dataset access, include `{"datasetId":"order-amounts","fields":["orderId","sales"]}` in the token's `grants` array.
 
 Reporting clients discover the virtual connection `@datasets` and database `published` under the usual discovery endpoints. Pass the dataset ID as the collection to `/schema` and `/query`. Dataset queries accept a `filters` object containing exact scalar matches on granted fields. [Examples, field types, revision semantics and cache headers](datasets.md)
+
+## Query workspace
+
+Owners and editors can preview and publish from the console. Send a JSON object with `connectionId`, `database`, `collection` and the literal read-only `pipeline` array to `POST /api/v1/admin/workspace/preview`. The result contains typed `fields` and up to 50 `rows` in field order.
+
+To publish, add a unique `id` to the same request and send it to `POST /api/v1/admin/workspace/open`. The gateway samples the pipeline, validates the declared output and creates a managed dataset. A successful response is HTTP 201 with `datasetId` and `url`. Repeating the same publication returns its link with HTTP 200. Reusing an ID for a different definition returns HTTP 409. All console roles can retrieve a saved link with `GET /api/v1/admin/workspace/looker/{id}`. Opening the link requires a separate reporting grant to read fields and rows.
+
+The public console origin accepts scoped reporting keys in `X-MLC-Token` on the connections, databases, collections, schema and query endpoints. The private gateway checks the key and current grants on each operation. [Team roles and password initialization](administration.md)

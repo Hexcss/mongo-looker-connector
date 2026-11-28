@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Hexcss/mongo-looker-connector/internal/control"
 	"google.golang.org/api/idtoken"
 )
 
@@ -17,6 +18,9 @@ type loginStore interface {
 
 func (s *Server) EnableHostedLogins(store loginStore) {
 	s.admin.logins = store
+	if team, ok := store.(control.TeamStore); ok {
+		s.enableTeam(team)
+	}
 	s.mux.HandleFunc("POST /api/v1/admin/hosted-ticket", func(w http.ResponseWriter, r *http.Request) {
 		// authorize has verified this assertion. A browser session cannot mint another session.
 		claims, err := idtoken.ParsePayload(r.Header.Get("X-MLC-Admin-Assertion"))

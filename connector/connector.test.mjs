@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 import test from 'node:test';
+import { Config } from './config-fixture.mjs';
 
 const source = readFileSync(new URL('./Code.gs', import.meta.url), 'utf8');
 const key = 'mlc_' + '1'.repeat(32) + '.' + 'x'.repeat(43);
@@ -13,49 +14,19 @@ const range = {startDate: '2026-01-01', endDate: '2026-01-02'};
 const fields = [{name: '_id', type: 'TEXT'}, {name: 'amount', type: 'NUMBER'},
   {name: 'order.date', type: 'YEAR_MONTH_DAY_SECOND'}];
 
-class Config {
-  questions = [];
-  newSelectSingle() { return this.entry('select'); }
-  newTextArea() { return this.entry('textarea'); }
-  newInfo() {
-    const q = {type: 'info'};
-    this.questions.push(q);
-    return {
-      setId(id) { q.id = id; return this; },
-      setText(text) { q.text = text; return this; }
-    };
-  }
-  entry(type) {
-    const q = {type, choices: [], labels: []};
-    this.questions.push(q);
-    return {
-      setId(id) { q.id = id; return this; },
-      setName(name) { q.name = name; return this; },
-      setHelpText(help) { q.help = help; return this; },
-      setPlaceholder(example) { q.example = example; return this; },
-      setAllowOverride(value) { q.override = value; return this; },
-      setIsDynamic(value) { q.dynamic = value; return this; },
-      addOption(option) { q.choices.push(option.value); q.labels.push(option.label); return this; }
-    };
-  }
-  newOptionBuilder() { return {setLabel(label) { this.label = label; return this; }, setValue(value) { this.value = value; return this; }}; }
-  setIsSteppedConfig(value) { this.stepped = value; }
-  setDateRangeRequired(value) { this.dateRequired = value; }
-  build() { return this; }
-}
-
-function connector() {
+function connector(origins) {
   const properties = new Map();
   const calls = [];
   const warnings = [];
   const settings = {fields, status: 200, iamStatus: 200};
   const getUserProperties = () => ({
+    getKeys: () => [...properties.keys()],
     setProperty: (name, value) => properties.set(name, value),
     deleteProperty: name => properties.delete(name),
     getProperty: name => properties.get(name)
   });
   const cc = {
-    AuthType: {KEY: 'KEY'},
+    AuthType: {KEY: 'KEY', PATH_KEY: 'PATH_KEY'},
     newAuthTypeResponse: () => ({
       setAuthType(type) { this.type = type; return this; },
       setHelpUrl(helpUrl) { this.helpUrl = helpUrl; return this; },
@@ -84,7 +55,15 @@ function connector() {
         body = settings.iamError || {token: 'test-invoker'};
         status = settings.iamStatus;
       } else {
-        assert.deepEqual({...opts.headers}, {Authorization: 'Bearer ' + key, 'X-Serverless-Authorization': 'Bearer test-invoker'});
+        const host = new URL(url).origin;
+        if (origins) {
+          assert.ok(origins.includes(host));
+          assert.deepEqual({...opts.headers}, {'X-MLC-Token': settings.keys[host]});
+          status = settings.statusByHost?.[host] ?? status;
+        } else {
+          assert.equal(host, origin);
+          assert.deepEqual({...opts.headers}, {Authorization: 'Bearer ' + key, 'X-Serverless-Authorization': 'Bearer test-invoker'});
+        }
         const routes = {
           connections: {connections: settings.connections || ['demo']},
           'connections/%40datasets/databases': {databases: ['published']},
@@ -94,8 +73,7 @@ function connector() {
           schema: {fields: data?.pipeline ? (settings.outputFields ?? settings.fields) : settings.fields},
           query: {rows: settings.rows || [[42, 'order-001']]}
         };
-        assert.ok(url.startsWith(origin + '/api/v1/'));
-        body = routes[url.slice((origin + '/api/v1/').length)];
+        body = routes[url.slice((host + '/api/v1/').length)];
         if (url.endsWith('/schema') && !data?.pipeline && settings.sourceSchemaStatus) status = settings.sourceSchemaStatus;
         assert.ok(body);
       }
@@ -103,6 +81,7 @@ function connector() {
     }}
   });
   runInContext(source, context);
+  if (origins) runInContext('const MLC_GATEWAY_ORIGINS = Object.freeze(' + JSON.stringify(origins) + ');', context);
   return {api: context, calls, settings, properties, warnings};
 }
 
@@ -367,4 +346,44 @@ test('Spanish setup retains identifiers and localizes help, validation and gatew
   settings.status = 403;
   assert.throws(() => config(params), /acceso denegado/i);
   assert.throws(() => api.getConfig({languageCode:'fr', configParams:params}), /Access denied/);
+});
+
+
+test('PATH_KEY keeps each reporting token on its registered HTTPS gateway', () => {
+  const second = 'https://second.example.org';
+  const {api, calls, settings, properties} = connector([origin, second]);
+  settings.keys = {[origin]: key, [second]: key.replace('1111', '2222')};
+  assert.equal(api.getAuthType().type, 'PATH_KEY');
+  assert.equal(api.setCredentials({pathKey: {path: 'https://unregistered.example', key}}).errorCode, 'INVALID_CREDENTIALS');
+  assert.equal(calls.length, 0);
+  for (const path of [origin, second]) {
+    assert.equal(api.setCredentials({pathKey: {path: path + '/', key: settings.keys[path]}}).errorCode, 'NONE');
+  }
+  assert.equal(api.isAuthValid(), true);
+  settings.statusByHost = {[second]: 401};
+  assert.equal(api.isAuthValid(), true);
+  settings.statusByHost = {[second]: 503};
+  assert.equal(api.isAuthValid(), true);
+  const config = api.getConfig({});
+  assert.deepEqual(config.questions[0].choices, [origin, second].map(encodeURIComponent));
+  settings.connections = ['@datasets'];
+  const saved = {gatewayOrigin: encodeURIComponent(origin), connectionId: '%40datasets', collection: 'weekly'};
+  const ready = api.getConfig({configParams: saved});
+  assert.equal(ready.stepped, false);
+  assert.equal(ready.dateRequired, false);
+  const dated = {...saved, dateField: 'order.date'};
+  assert.equal(api.getConfig({configParams: dated}).dateRequired, true);
+  settings.rows = [[42]];
+  api.getData({configParams: saved, fields: [{name: 'amount'}], dateRange: range});
+  assert.deepEqual(calls.at(-1).data, {connectionId: '@datasets', database: 'published', collection: 'weekly', fields: ['amount']});
+  api.getData({configParams: dated, fields: [{name: 'amount'}], dateRange: range});
+  assert.deepEqual(calls.at(-1).data.dateRange, {field: 'order.date', ...range});
+  api.getSchema({configParams: saved});
+  assert.ok(calls.at(-1).url.startsWith(origin + '/'));
+  const count = calls.length;
+  assert.throws(() => api.getSchema({configParams: {...saved, gatewayOrigin: 'https://other.example'}}), /Authorize|registered/);
+  assert.equal(calls.length, count);
+  assert.ok(calls.every(call => !call.url.includes('iamcredentials.googleapis.com')));
+  api.resetAuth();
+  assert.equal(properties.size, 0);
 });

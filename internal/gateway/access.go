@@ -33,6 +33,7 @@ type catalog interface {
 type administration struct {
 	cache  resultCache
 	logins loginStore
+	team   control.TeamStore
 	store  catalog
 	verify func(context.Context, string) bool
 }
@@ -66,7 +67,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (*http.Reques
 		raw = auth
 	}
 	// Exchange authenticates with the single-use ticket in its own handler.
-	if s.admin.logins != nil && r.URL.Path == "/api/v1/hosted/exchange" && r.Method == "POST" {
+	if s.admin.logins != nil && (r.URL.Path == "/api/v1/hosted/exchange" || s.admin.team != nil && r.URL.Path == "/api/v1/hosted/login") && r.Method == "POST" {
 		return r, true
 	}
 	if session := r.Header.Get("X-MLC-Hosted-Session"); session != "" {
@@ -74,7 +75,14 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (*http.Reques
 			fail(w, 401, "unauthorized", "Invalid browser session.")
 			return nil, false
 		}
-		if err := s.admin.logins.CheckSession(r.Context(), session); err != nil {
+		a := control.Account{Role: control.RoleOwner, Operator: true}
+		var err error
+		if s.admin.team != nil {
+			a, err = s.admin.team.SessionAccount(r.Context(), session)
+		} else {
+			err = s.admin.logins.CheckSession(r.Context(), session)
+		}
+		if err != nil {
 			controlError(w, err)
 			return nil, false
 		}
@@ -82,10 +90,10 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (*http.Reques
 			fail(w, 403, "forbidden", "The administrator request header is required.")
 			return nil, false
 		}
-		return r, true
+		return administrativeRequest(w, r, a)
 	}
 	if proof != "" {
-		if raw != "" || len(proof) > 8192 || !s.admin.verify(r.Context(), proof) {
+		if raw != "" || len(proof) > 8192 || s.admin.verify == nil || !s.admin.verify(r.Context(), proof) {
 			fail(w, 401, "unauthorized", "Invalid administrator credential.")
 			return nil, false
 		}
@@ -93,7 +101,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (*http.Reques
 			fail(w, 403, "forbidden", "The administrator request header is required.")
 			return nil, false
 		}
-		return r, true
+		return administrativeRequest(w, r, control.Account{Role: control.RoleOwner, Operator: true})
 	}
 	if raw == "" || len(raw) > 512 {
 		fail(w, 401, "unauthorized", "A reporting token or administrator credential is required.")
@@ -108,6 +116,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (*http.Reques
 		fail(w, 403, "forbidden", "Administrator access is required.")
 		return nil, false
 	}
+	w.Header().Set("X-MLC-Reporting-Authorized", "true")
 	return r.WithContext(context.WithValue(r.Context(), tokenContextKey{}, &token)), true
 }
 

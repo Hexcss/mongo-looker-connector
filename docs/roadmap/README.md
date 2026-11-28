@@ -10,6 +10,7 @@ The first milestone proves that a company can query its own MongoDB data through
 | **v0.4 · Managed datasets** | [v0.4.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.4.0) | An administrator publishes a virtual dataset with a reusable pipeline, stable schema, field restrictions, filters, and permission-aware caching. |
 | **v0.5 · Custom aggregations in Looker Studio** | [v0.5.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.5.0) | A report author enters a read-only pipeline for an authorized collection during data source setup and charts fields from its output. |
 | **v0.6 · Looker Studio setup** | [v0.6.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.6.0) | Authors can configure an authorized source in English or Spanish and review the fields it provides before connecting. |
+| **v0.7 · Hosted query workspace and teams** | [Release and sandbox verification](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.7.0) | Team members sign in directly, preview rows and fields, publish a saved pipeline and open its configured Looker Studio data source. A fresh self-hosted install initializes its MongoDB catalog. |
 | **v1.0 · Self-hosted release** | Planned | A new operator can install and upgrade the gateway, configure supported providers and use Looker Studio from the web console without source edits. |
 | **v1.x · Advanced analytics** | Planned | Prioritize the visual aggregation builder, expanded filter pushdown, explain plans, shared caching, monitoring, and private networking against operator needs. |
 
@@ -51,6 +52,10 @@ The [v0.3.1 maintenance release](https://github.com/Hexcss/mongo-looker-connecto
 
 - The [custom aggregation example](../looker-studio.md#enter-a-custom-aggregation) finds the largest sandbox order and demonstrates how a source date selection changes the result.
 - The [connector tests](../../connector/connector.test.mjs) cover setup and report requests. The [sandbox reporting check](../../deploy/sandbox/report_smoke.py) verifies the projected field names and exact rows. The [release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.5.0) identifies the connector version and tested staging image.
+
+## v0.7 verification
+
+The [workspace smoke](../../deploy/sandbox/workspace_smoke.py) checks typed results, publication, handoff parameters, field restrictions and revocation through the public reporting origin. The [self-hosting guide](../../deploy/selfhost/README.md) covers fresh MongoDB installations. Existing Cloud installations can continue using their Firestore catalog and existing connector deployment. An in-place migration of that catalog is a separate upgrade task.
 
 ## Next milestone
 

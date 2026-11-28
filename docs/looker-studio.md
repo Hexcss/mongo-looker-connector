@@ -2,6 +2,23 @@
 
 Use **MongoDB Reporting** to build a chart from a collection, a custom aggregation, or a dataset prepared by your administrator. The connector shows the sources available to your reporting token. Setup labels follow your Looker Studio language for English and Spanish.
 
+## Use a gateway URL and reporting key
+
+In the hosted console, open **Pipeline workspace**, select a collection and build the aggregation. **Run preview** shows rows and inferred field types. Choose **Open in Looker Studio**, give the dataset a unique ID and select **Save and open**. The link carries the dataset ID and gateway origin. Its pipeline stays in the gateway.
+
+An owner issues a reporting key for the saved dataset and selects the fields the key can read. In the generic connector's Google authorization form, enter the public HTTPS gateway origin in **Path** and the reporting token in **Key**. After first-time authorization, reopen the saved link from **Datasets** to restore Google's preselected configuration. A data source stays bound to its selected gateway. [Google’s direct-link guide](https://developers.google.com/data-studio/connector/direct-links)
+
+To package the generic connector for one or more installations, register their public origins when building its Apps Script manifest.
+
+```sh
+python3 connector/package.py \
+  --gateway-origin https://reports.example.org \
+  --gateway-origin https://reports.example.net \
+  --output /tmp/mongo-reporting-connector
+```
+
+Deploy the three generated files as a versioned Community Connector. Set the resulting deployment ID and the matching origin on each gateway using the Terraform `looker_handoff` variable or the self-host installer. An additional origin requires publishing an updated Apps Script version. Google requires URL prefixes on versioned deployments. The generic package requests the external-request scope and sends only the selected origin's reporting key. [Google’s allowlist reference](https://developers.google.com/apps-script/manifest/allowlist-url)
+
 ## Sign in with a reporting token
 
 1. Ask your gateway administrator for the connector link and a reporting token for the data you need. Administrators issue these under **Access tokens** in the [administration console](administration.md).
