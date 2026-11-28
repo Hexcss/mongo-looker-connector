@@ -177,6 +177,15 @@ func explainWork(r bson.Raw) ExplainStats {
 		return stats
 	}
 	if shards := document(r, "shards"); shards != nil {
+		// A merge-side lookup reads the foreign collection after shard-local
+		// execution. The split pipeline is a description, with no counters.
+		// Without coordinator totals the shard plans cannot describe this work.
+		for _, value := range values(document(r, "splitPipeline"), "mergerPart") {
+			stage, _ := value.DocumentOK()
+			if document(stage, "$lookup") != nil {
+				return stats
+			}
+		}
 		entries, _ := shards.Elements()
 		if len(entries) == 0 {
 			return stats
