@@ -383,3 +383,67 @@ test('viewers browse dataset references without reading raw connections; passwor
   await account.waitForURL(origin + '/');
   assert.deepEqual(pending.requests.at(-1).body, { currentPassword: 'fixture-temporary', newPassword: 'fixture-rotated' });
 });
+
+test('build an authorized join, inspect measured execution stats and discard a stale plan', async t => {
+  const { page, requests } = await fixture(t, { width: 1380, height: 1000 }, { role: 'editor', start: 'workspace' });
+  await page.route('**/workspace/preview', route => {
+    const input = route.request().postDataJSON();
+    const fields = input.collection === 'regions' ? [{ name: 'code', type: 'TEXT' }] :
+      [{ name: 'order_id', type: 'TEXT' }, { name: 'region', type: 'TEXT' }];
+    return route.fulfill({ json: { fields, rows: [fields.map(f => f.name === 'order_id' ? '001' : 'West')] } });
+  });
+  const editor = page.getByLabel('Aggregation pipeline');
+  await editor.fill('[{"$limit":9007199254740993}]');
+  await page.getByLabel('Operation').selectOption('$lookup');
+  const target = page.getByRole('combobox', { name: 'Join collection', exact: true });
+  assert.deepEqual(await target.locator('option').allTextContents(), ['orders', 'regions']);
+  await target.selectOption('regions');
+  await page.getByLabel('Local field').fill('region');
+  await page.locator('#join-fields option[value="code"]').waitFor({ state: 'attached' });
+  await page.getByLabel('Foreign field').fill('code');
+  await page.getByLabel('Output field').fill('place');
+  const unwind = page.getByLabel('One row per match');
+  await unwind.check();
+  await page.getByRole('button', { name: 'Add stage' }).click();
+  const text = await editor.inputValue();
+  assert.ok(text.includes('9007199254740993'));
+  assert.deepEqual(JSON.parse(text).slice(1), [
+    { $lookup: { from: 'regions', localField: 'region', foreignField: 'code', as: 'place' } }, { $unwind: '$place' }
+  ]);
+  let metrics = { documentsExamined: 17, keysExamined: 0, indexesUsed: ['region_code'], rowLimit: 50 };
+  let payload, status = 200;
+  await page.route('**/workspace/explain', route => {
+    payload = route.request().postData();
+    return route.fulfill({ status, json: status === 200 ? metrics : { error: { message: 'Explain is unavailable for this source.' } } });
+  });
+  const explain = page.getByRole('button', { name: 'Explain', exact: true });
+  const plan = page.getByRole('region', { name: 'Execution plan' });
+  await explain.click();
+  await plan.getByText('17', { exact: true }).waitFor();
+  await plan.getByText('0', { exact: true }).waitFor();
+  await plan.getByText('region_code', { exact: true }).waitFor();
+  assert.ok(payload.includes(text));
+  assert.equal(JSON.parse(payload).database, 'reporting');
+  assert.equal(JSON.parse(payload).collection, 'orders');
+  await page.getByRole('button', { name: 'Run preview' }).click();
+  await page.getByRole('region', { name: 'Preview results' }).waitFor();
+  if (process.env.MLC_UI_SCREENSHOT_DIR) {
+    await page.screenshot({ path: process.env.MLC_UI_SCREENSHOT_DIR + '/workspace-explain-desktop.png', fullPage: true });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  if (process.env.MLC_UI_SCREENSHOT_DIR) {
+    await page.screenshot({ path: process.env.MLC_UI_SCREENSHOT_DIR + '/workspace-explain-mobile.png', fullPage: true });
+  }
+  await editor.fill('[]');
+  await plan.waitFor({ state: 'hidden' });
+  metrics = { documentsExamined: null, keysExamined: 0, indexesUsed: [], rowLimit: 50 };
+  await explain.click();
+  await plan.getByText('Unavailable', { exact: true }).waitFor();
+  await plan.getByText('None', { exact: true }).waitFor();
+  status = 403;
+  await explain.click();
+  await page.getByRole('alert').getByText('Explain is unavailable for this source.').waitFor();
+  await plan.waitFor({ state: 'hidden' });
+  assert.ok(!requests.some(request => request.resource === 'datasets'));
+});

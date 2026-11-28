@@ -1,6 +1,6 @@
 # Google Cloud sandbox
 
-The sandbox runs the gateway as an IAM-authenticated Cloud Run service in `europe-west1`. Its service account can read one named Firestore Enterprise database through the MongoDB-compatible endpoint. The `demo` connection exposes the `orders` collection. The sandbox makes no changes to the default Firestore database.
+The sandbox runs the gateway as an IAM-authenticated Cloud Run service in `europe-west1`. Its service account can read one named Firestore Enterprise database through the MongoDB-compatible endpoint. The `demo` connection exposes the synthetic `orders` and `shipping_zones` collections. The sandbox makes no changes to the default Firestore database.
 
 Run the following commands from the repository root with Bash, gcloud, Terraform 1.6 or later, Docker, and Python 3. The seed script uses PyMongo 4 (`python3 -m pip install 'pymongo>=4.7,<5'` in a virtual environment). Use a billing-enabled project with the Service Usage and Cloud Storage APIs available. The operator needs permission to manage the listed resources, enable services, update project IAM, use the gateway service account, and publish to the sandbox registry.
 
@@ -52,7 +52,7 @@ registry=$("$tf" -chdir="$stacks/sandbox" output -raw registry)
 python3 deploy/sandbox/seed.py
 ```
 
-The seed script uses the operator's short-lived access token to upsert and read back two synthetic orders. The operator needs write access to the fixture database. The runtime account receives only `roles/datastore.viewer` on that database. The expected documents are `{"_id":"order-001","amount":42}` and `{"_id":"order-002","amount":17}`.
+The seed script uses the operator's short-lived access token to initialize and read back two synthetic orders and matching shipping regions. The operator needs write access to the fixture database. The runtime account receives only `roles/datastore.viewer` on that database. The expected documents are `{"_id":"order-001","amount":42}` and `{"_id":"order-002","amount":17}`.
 
 ## Release the gateway
 
@@ -184,3 +184,5 @@ looker_handoff = {
 ```
 
 The public console proxies reporting requests to the private gateway with its service identity. Report authors need a scoped reporting key and a registered gateway URL. Owners initialize their first named account with the [administration guide](../../docs/administration.md). [Generic connector packaging](../../docs/looker-studio.md#use-a-gateway-url-and-reporting-key)
+
+The foundation stack creates an ascending MongoDB-compatible index on `orders.amount` for the [Explain example](../../docs/query.md#join-two-collections-and-inspect-an-execution-plan).

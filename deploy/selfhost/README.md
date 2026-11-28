@@ -14,6 +14,8 @@ Select the **sample** connection and the **analytics.orders** collection in the 
 [{"$sort":{"amount":-1}},{"$limit":1}]
 ```
 
+Fresh installations also include `analytics.shipping_zones`, with matching `_id` values and a scalar `region`. Join it to `analytics.orders` in **Pipeline workspace** and use **Explain** to inspect index use. The native sample uses `order-1001` and an amount of `42.5`. Existing installations retain the collection permissions configured by their owners.
+
 ### Publish to Looker Studio
 
 Apps Script needs an HTTPS URL reachable from Google's servers. Terminate TLS at a reverse proxy and forward the public hostname to the console's loopback port. Preserve the original Host header. For example, this Caddyfile serves both browser sessions and scoped reporting API requests.

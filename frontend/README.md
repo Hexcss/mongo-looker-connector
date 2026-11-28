@@ -37,3 +37,13 @@ npm --prefix frontend run smoke
 ```
 
 To exercise a local fixture that already serves the console and administration API, supply its loopback `/admin/` address in `MLC_CONSOLE_URL`.
+
+### Verify the hosted join editor
+
+With the seeded sandbox and its Terraform-managed index available, use the operator environment variables above and set `HOSTED_CONSOLE_URL` to the console origin.
+
+```sh
+MLC_SMOKE_JOINS=1 node frontend/tests/hosted-smoke.js
+```
+
+The browser joins the authorized `orders` and `shipping_zones` collections, verifies both regions and checks the execution statistics for a filter on `amount`. Set `MLC_UI_SCREENSHOT_DIR` to an existing directory to capture the measured plan.

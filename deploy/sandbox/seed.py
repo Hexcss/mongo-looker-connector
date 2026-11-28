@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upsert the two synthetic orders into the named Terraform sandbox."""
+"""Seed two synthetic orders and their shipping regions in the Terraform sandbox."""
 import json
 import os
 import subprocess
@@ -31,12 +31,19 @@ orders = [
     {"_id": "order-001", "amount": 42, "orderedAt": datetime(2026, 11, 1, 12)},
     {"_id": "order-002", "amount": 17, "orderedAt": datetime(2026, 11, 2, 15, 30)},
 ]
+shipping_zones = [
+    {"_id": "order-001", "region": "EU-South"},
+    {"_id": "order-002", "region": "EU-West"},
+]
+
 with MongoClient(uri, username="access_token", password=gcloud("auth", "print-access-token"),
                  serverSelectionTimeoutMS=15000, timeoutMS=30000) as client:
-    collection = client[database]["orders"]
-    for order in orders:
-        collection.replace_one({"_id": order["_id"]}, order, upsert=True)
-    actual = list(collection.find({"_id": {"$in": [order["_id"] for order in orders]}}).sort("_id", 1))
-    if actual != orders:
-        raise SystemExit("Synthetic fixture read-back did not match the expected rows.")
-print(f"Verified two synthetic orders in {project}/{database}.")
+    for name, expected in (("orders", orders), ("shipping_zones", shipping_zones)):
+        collection = client[database][name]
+        # Retain any existing document and verify the known fixture before use.
+        for item in expected:
+            collection.update_one({"_id": item["_id"]}, {"$setOnInsert": item}, upsert=True)
+        actual = list(collection.find({"_id": {"$in": [item["_id"] for item in expected]}}).sort("_id", 1))
+        if actual != expected:
+            raise SystemExit(f"The existing {name} fixture differs from the expected records.")
+print(f"Verified two synthetic orders and their shipping zones in {project}/{database}.")
