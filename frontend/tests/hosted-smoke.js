@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium, firefox } from 'playwright';
 import { verifyDatasets, verifyWorkbench } from './hosted-datasets.js';
+import { verifyJoin } from './hosted-join.js';
 
 // Only the launcher sees the operator credentials. Never log its single-use URL.
 const helper = fileURLToPath(new URL('../../deploy/sandbox/hosted_console.py', import.meta.url));
@@ -55,6 +56,7 @@ try {
   await checkWrite(response, 200);
   assert.deepEqual(await response.json(), { fields: [{ name: '_id', type: 'TEXT' }, { name: 'amount', type: 'NUMBER' }], rows: [['order-001', 42]] });
   await page.getByText('order-001', { exact: true }).waitFor();
+  if (process.env.MLC_SMOKE_JOINS === '1') await verifyJoin(page);
   if (process.env.MLC_SMOKE_DATASETS === '1') {
     await verifyDatasets(page, origin);
     await verifyWorkbench(page, origin);
