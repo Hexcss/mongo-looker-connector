@@ -44,18 +44,19 @@ class Config {
   build() { return this; }
 }
 
-function connector() {
+function connector(origins) {
   const properties = new Map();
   const calls = [];
   const warnings = [];
   const settings = {fields, status: 200, iamStatus: 200};
   const getUserProperties = () => ({
+    getKeys: () => [...properties.keys()],
     setProperty: (name, value) => properties.set(name, value),
     deleteProperty: name => properties.delete(name),
     getProperty: name => properties.get(name)
   });
   const cc = {
-    AuthType: {KEY: 'KEY'},
+    AuthType: {KEY: 'KEY', PATH_KEY: 'PATH_KEY'},
     newAuthTypeResponse: () => ({
       setAuthType(type) { this.type = type; return this; },
       setHelpUrl(helpUrl) { this.helpUrl = helpUrl; return this; },
@@ -70,7 +71,7 @@ function connector() {
     PropertiesService: {getUserProperties},
     ScriptApp: {getOAuthToken: () => 'test-user-access'},
     Utilities: {DigestAlgorithm: {}, Charset: {}, computeDigest: (_, name) => [...createHash('sha256').update(name).digest()]},
-    MLC_GATEWAY_URL: origin, MLC_INVOKER: invoker,
+    MLC_GATEWAY_URL: origin, MLC_INVOKER: invoker, ...(origins ? {MLC_GATEWAY_ORIGINS: origins} : {}),
     UrlFetchApp: {fetch(url, opts) {
       const data = opts.payload && JSON.parse(opts.payload);
       calls.push({url, data, payload: opts.payload});
@@ -84,7 +85,14 @@ function connector() {
         body = settings.iamError || {token: 'test-invoker'};
         status = settings.iamStatus;
       } else {
-        assert.deepEqual({...opts.headers}, {Authorization: 'Bearer ' + key, 'X-Serverless-Authorization': 'Bearer test-invoker'});
+        const host = new URL(url).origin;
+        if (origins) {
+          assert.ok(origins.includes(host));
+          assert.deepEqual({...opts.headers}, {'X-MLC-Token': settings.keys[host]});
+        } else {
+          assert.equal(host, origin);
+          assert.deepEqual({...opts.headers}, {Authorization: 'Bearer ' + key, 'X-Serverless-Authorization': 'Bearer test-invoker'});
+        }
         const routes = {
           connections: {connections: settings.connections || ['demo']},
           'connections/%40datasets/databases': {databases: ['published']},
@@ -94,8 +102,7 @@ function connector() {
           schema: {fields: data?.pipeline ? (settings.outputFields ?? settings.fields) : settings.fields},
           query: {rows: settings.rows || [[42, 'order-001']]}
         };
-        assert.ok(url.startsWith(origin + '/api/v1/'));
-        body = routes[url.slice((origin + '/api/v1/').length)];
+        body = routes[url.slice((host + '/api/v1/').length)];
         if (url.endsWith('/schema') && !data?.pipeline && settings.sourceSchemaStatus) status = settings.sourceSchemaStatus;
         assert.ok(body);
       }
@@ -367,4 +374,31 @@ test('Spanish setup retains identifiers and localizes help, validation and gatew
   settings.status = 403;
   assert.throws(() => config(params), /acceso denegado/i);
   assert.throws(() => api.getConfig({languageCode:'fr', configParams:params}), /Access denied/);
+});
+
+
+test('PATH_KEY keeps each reporting token on its registered HTTPS gateway', () => {
+  const second = 'https://second.example.org';
+  const {api, calls, settings, properties} = connector([origin, second]);
+  settings.keys = {[origin]: key, [second]: key.replace('1111', '2222')};
+  assert.equal(api.getAuthType().type, 'PATH_KEY');
+  assert.equal(api.setCredentials({pathKey: {path: 'https://unregistered.example', key}}).errorCode, 'INVALID_CREDENTIALS');
+  assert.equal(calls.length, 0);
+  for (const path of [origin, second]) {
+    assert.equal(api.setCredentials({pathKey: {path: path + '/', key: settings.keys[path]}}).errorCode, 'NONE');
+  }
+  assert.equal(api.isAuthValid(), true);
+  const config = api.getConfig({});
+  assert.deepEqual(config.questions[0].choices, [origin, second].map(encodeURIComponent));
+  settings.connections = ['@datasets'];
+  const saved = {gatewayOrigin: encodeURIComponent(origin), connectionId: '%40datasets', collection: 'weekly'};
+  assert.equal(api.getConfig({configParams: saved}).stepped, false);
+  api.getSchema({configParams: saved});
+  assert.ok(calls.at(-1).url.startsWith(origin + '/'));
+  const count = calls.length;
+  assert.throws(() => api.getSchema({configParams: {...saved, gatewayOrigin: 'https://other.example'}}), /Authorize|registered/);
+  assert.equal(calls.length, count);
+  assert.ok(calls.every(call => !call.url.includes('iamcredentials.googleapis.com')));
+  api.resetAuth();
+  assert.equal(properties.size, 0);
 });

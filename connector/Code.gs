@@ -1,8 +1,21 @@
-// Installation.gs pins the company-owned gateway and its reporting-only identity.
+// Installation.gs describes the HTTPS gateways registered for this deployment.
 const cc = DataStudioApp.createCommunityConnector();
 const keyProperty = 'mlc.reportingKey';
 const noSourceDate = '$none'; // MongoDB date paths cannot start with '$'.
 let invocationIdToken;
+const genericGateway = typeof MLC_GATEWAY_ORIGINS !== 'undefined';
+const activeGateway = 'mlc.activeGateway';
+let selectedGateway;
+
+function registeredOrigin_(path) {
+  if (typeof path !== 'string') return undefined;
+  const origin = path.trim().replace(/\/$/, '').toLowerCase();
+  return MLC_GATEWAY_ORIGINS.includes(origin) ? origin : undefined;
+}
+
+function originKey_(origin) {
+  return 'mlc.reportingKey:' + origin;
+}
 
 const english_ = (en, es) => en;
 const spanish_ = (en, es) => es;
@@ -46,7 +59,11 @@ function request_(stage, url, headers, data, text) {
   }
 }
 
-function gateway_(path, data, key, text = english_) {
+function gateway_(path, data, key, text = english_, origin = selectedGateway) {
+  if (genericGateway) {
+    if (!origin || !MLC_GATEWAY_ORIGINS.includes(origin)) fail_(text('Select a registered gateway.', 'Selecciona una pasarela registrada.'));
+    return request_('gateway', origin + '/api/v1/' + path, {'X-MLC-Token': key}, data, text);
+  }
   if (!invocationIdToken) {
     const url = 'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/' + MLC_INVOKER + ':generateIdToken';
     // package.py validates and pins the complete service-account email in Installation.gs.
@@ -72,13 +89,15 @@ function gateway_(path, data, key, text = english_) {
 }
 
 function read_(path, data, pipeline, {optionalSourceSchema = false, text = english_} = {}) {
-  const key = PropertiesService.getUserProperties().getProperty(keyProperty);
+  const key = PropertiesService.getUserProperties().getProperty(genericGateway ? originKey_(selectedGateway) : keyProperty);
   if (!key) fail_(text('Authorize this connector with a reporting token.',
     'Autoriza este conector con un token de acceso a los informes.'));
   // pipeline is a validated JSON array. Preserve BSON int64 literals and compound sort key order.
   if (pipeline !== undefined) data = JSON.stringify(data).slice(0, -1) + ',"pipeline":' + pipeline + '}';
   const response = gateway_(path, data, key, text);
   const status = response.getResponseCode();
+  if (genericGateway && (status === 401 || status === 403)) fail_(text('Access denied. Check the reporting token for this gateway.',
+    'Acceso denegado. Comprueba el token de acceso para esta pasarela.'));
   if (status === 401 || status === 403) fail_(text('Access denied. Check the reporting token and Cloud Run invoker permissions.',
     'Acceso denegado. Comprueba el token de acceso y los permisos para invocar el servicio de Cloud Run.'));
   if (status === 404) fail_(text('The selected connection or namespace is unavailable. Reconfigure the data source.',
@@ -98,14 +117,15 @@ function read_(path, data, pipeline, {optionalSourceSchema = false, text = engli
 }
 
 function getAuthType() {
+  if (genericGateway) return cc.newAuthTypeResponse().setAuthType(cc.AuthType.PATH_KEY).build();
   return cc.newAuthTypeResponse().setAuthType(cc.AuthType.KEY)
     .setHelpUrl('https://github.com/Hexcss/mongo-looker-connector/blob/167f44fa033a023a149e401f98d9b25bf2ce1f94/docs/looker-studio.md#sign-in-with-a-reporting-token')
     .build();
 }
 
-function validKey_(key) {
+function validKey_(key, origin) {
   if (typeof key !== 'string' || !/^mlc_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$/.test(key)) return false;
-  const response = gateway_('connections', undefined, key);
+  const response = gateway_('connections', undefined, key, english_, origin);
   const status = response.getResponseCode();
   if (status !== 200) authWarning_('gateway', status, 'HTTP_ERROR');
   if (status === 401 || status === 403) return false;
@@ -114,22 +134,42 @@ function validKey_(key) {
 }
 
 function setCredentials(request) {
+  if (genericGateway) {
+    const creds = request.pathKey || {};
+    const origin = registeredOrigin_(creds.path);
+    if (!origin || !validKey_(creds.key, origin)) return {errorCode: 'INVALID_CREDENTIALS'};
+    const properties = PropertiesService.getUserProperties();
+    properties.setProperty(originKey_(origin), creds.key);
+    properties.setProperty(activeGateway, origin);
+    return {errorCode: 'NONE'};
+  }
   if (!validKey_(request.key)) return {errorCode: 'INVALID_CREDENTIALS'};
   PropertiesService.getUserProperties().setProperty(keyProperty, request.key);
   return {errorCode: 'NONE'};
 }
 
 function isAuthValid() {
+  if (genericGateway) {
+    const props = PropertiesService.getUserProperties();
+    const origin = registeredOrigin_(props.getProperty(activeGateway));
+    return Boolean(origin && validKey_(props.getProperty(originKey_(origin)), origin));
+  }
   return validKey_(PropertiesService.getUserProperties().getProperty(keyProperty));
 }
 
 function resetAuth() {
+  if (genericGateway) {
+    const props = PropertiesService.getUserProperties();
+    for (const name of props.getKeys()) if (name.startsWith('mlc.reportingKey:')) props.deleteProperty(name);
+    props.deleteProperty(activeGateway);
+    return;
+  }
   PropertiesService.getUserProperties().deleteProperty(keyProperty);
 }
 
 function configValues_(saved, text = english_) {
   const params = {};
-  for (const id of ['connectionId', 'database', 'collection', 'dateField', 'sourceDateField', 'queryMode']) {
+  for (const id of ['gatewayOrigin', 'connectionId', 'database', 'collection', 'dateField', 'sourceDateField', 'queryMode']) {
     if (saved && saved[id]) {
       try {
         params[id] = decodeURIComponent(saved[id]);
@@ -216,6 +256,12 @@ function getConfig(request) {
     return config.build();
   }
 
+  if (genericGateway) {
+    const props = PropertiesService.getUserProperties();
+    const origins = MLC_GATEWAY_ORIGINS.filter(origin => props.getProperty(originKey_(origin)));
+    if (!choose('gatewayOrigin', text('Reporting gateway', 'Pasarela de informes'), origins, true)) return config.build();
+    selectedGateway = params.gatewayOrigin;
+  }
   const connections = read('connections').connections;
   if (!choose('connectionId', text('Data source', 'Origen de datos'), connections, true,
     text('Your reporting token determines which connections and published datasets you can use.',
@@ -293,12 +339,14 @@ function schemaField_(field) {
 
 function getSchema(request) {
   const params = configValues_(request.configParams);
+  if (genericGateway) selectedGateway = registeredOrigin_(params.gatewayOrigin);
   const fields = read_('schema', namespace_(params), pipeline_(params)).fields;
   return {schema: fields.map(schemaField_)};
 }
 
 function getData(request) {
   const params = configValues_(request.configParams);
+  if (genericGateway) selectedGateway = registeredOrigin_(params.gatewayOrigin);
   const body = namespace_(params);
   const pipeline = pipeline_(params);
   const fields = read_('schema', body, pipeline).fields;

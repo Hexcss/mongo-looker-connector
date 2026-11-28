@@ -80,3 +80,19 @@ resource "google_firestore_field" "hosted_login_ttl" {
 output "hosted_console_url" {
   value = one(google_cloud_run_v2_service.hosted[*].uri)
 }
+
+variable "looker_handoff" {
+  type = object({
+    connector_id   = string
+    gateway_origin = string
+  })
+  default     = null
+  description = "Generic Apps Script deployment ID and its registered public HTTPS reporting origin for opening datasets in Looker Studio."
+  validation {
+    condition = var.looker_handoff == null ? true : (
+      can(regex("^[A-Za-z0-9_-]{8,256}$", var.looker_handoff.connector_id)) &&
+      can(regex("^https://([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z0-9]([a-z0-9-]*[a-z0-9])?(:[1-9][0-9]{0,4})?$", var.looker_handoff.gateway_origin))
+    )
+    error_message = "Supply a connector deployment ID and an HTTPS gateway origin with no trailing slash or path."
+  }
+}

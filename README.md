@@ -4,15 +4,17 @@
 
 [Administration console](docs/administration.md) · [Managed datasets](docs/datasets.md) · [Quickstart](#run-your-first-query) · [HTTP API](docs/api.md) · [Query reference](docs/query.md) · [Terraform deployment](deploy/terraform/README.md) · [Roadmap](docs/roadmap/README.md)
 
-## Open the administration console
+## Build a report from the workspace
 
-Manage MongoDB connections and credentials, preview read-only aggregations, and issue collection-scoped reporting tokens from the hosted browser console. On an installation with hosted access enabled, this command opens a signed-in session in your default browser. You can close the terminal afterward.
+Open the hosted console and sign in with your team account. Select a collection, add a **Match**, **Sort**, or **Group** stage with the stage builder, or edit the aggregation as JSON. **Run preview** displays the result rows and field types. Choose **Open in Looker Studio** to save the pipeline as a dataset and open its preconfigured data source. Owners grant reporting access by dataset and field. [Console guide](docs/administration.md) · [Looker Studio setup](docs/looker-studio.md#use-a-gateway-url-and-reporting-key)
+
+### Start a new workspace
 
 ```sh
-PROJECT_ID=your-project-id OPERATOR_ACCOUNT=your-account python3 deploy/sandbox/hosted_console.py
+python3 deploy/selfhost/init.py --owner admin@example.org
 ```
 
-[Console guide](docs/administration.md) · [Deployment and access setup](deploy/terraform/README.md)
+The installer creates the MongoDB catalog and generates a first-use owner password. Open the local console, choose your own password and add teammates under **Team**. For Google Cloud installations, the Terraform guide covers the hosted service and the operator’s initial owner setup. [Self-hosting guide](deploy/selfhost/README.md) · [Terraform deployment](deploy/terraform/README.md)
 
 ## Publish a managed dataset
 
