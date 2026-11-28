@@ -371,6 +371,7 @@ test('viewers browse dataset references without reading raw connections; passwor
   const pending = await fixture(t, undefined, { role: 'editor', rotate: true, start: 'workspace' });
   const account = pending.page;
   await account.getByText('Set a new password before opening your workspace.').waitFor();
+  await account.getByRole('button', { name: 'Sign out' }).waitFor();
   assert.ok(!pending.reads.some(read => read.resource === 'connections'));
   await account.getByLabel('Current password').fill('fixture-temporary');
   await account.getByLabel('New password', { exact: true }).fill('fixture-rotated');

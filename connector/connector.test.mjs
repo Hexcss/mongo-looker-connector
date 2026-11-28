@@ -368,7 +368,16 @@ test('PATH_KEY keeps each reporting token on its registered HTTPS gateway', () =
   assert.deepEqual(config.questions[0].choices, [origin, second].map(encodeURIComponent));
   settings.connections = ['@datasets'];
   const saved = {gatewayOrigin: encodeURIComponent(origin), connectionId: '%40datasets', collection: 'weekly'};
-  assert.equal(api.getConfig({configParams: saved}).stepped, false);
+  const ready = api.getConfig({configParams: saved});
+  assert.equal(ready.stepped, false);
+  assert.equal(ready.dateRequired, false);
+  const dated = {...saved, dateField: 'order.date'};
+  assert.equal(api.getConfig({configParams: dated}).dateRequired, true);
+  settings.rows = [[42]];
+  api.getData({configParams: saved, fields: [{name: 'amount'}], dateRange: range});
+  assert.deepEqual(calls.at(-1).data, {connectionId: '@datasets', database: 'published', collection: 'weekly', fields: ['amount']});
+  api.getData({configParams: dated, fields: [{name: 'amount'}], dateRange: range});
+  assert.deepEqual(calls.at(-1).data.dateRange, {field: 'order.date', ...range});
   api.getSchema({configParams: saved});
   assert.ok(calls.at(-1).url.startsWith(origin + '/'));
   const count = calls.length;

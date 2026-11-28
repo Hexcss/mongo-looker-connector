@@ -43,7 +43,7 @@ export function Profile({ account }: { account: Account }) {
           {error && <Alert>{error}</Alert>}
         </fieldset><footer className="editor-actions"><button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Change password'}</button></footer>
       </form>}
-    {location.protocol === 'https:' && <SignOut />}
+    {(!account.operator || location.protocol === 'https:') && <SignOut />}
   </>;
 }
 
