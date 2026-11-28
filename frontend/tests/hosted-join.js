@@ -18,7 +18,18 @@ export async function verifyJoin(page) {
   ]);
   stages.push({ $project: { _id: 1, region: '$shipping.region' } }, { $sort: { _id: 1 } });
   await input.fill(JSON.stringify(stages, null, 2));
-  const result = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/admin/workspace/preview');
+  function waitForOperation(operation) {
+    const pipeline = JSON.stringify(stages);
+    return page.waitForResponse(response => {
+      const request = response.request();
+      if (request.method() !== 'POST' || new URL(response.url()).pathname !== '/api/v1/admin/workspace/' + operation) return false;
+      // The join builder also previews one row of the foreign collection for field suggestions.
+      const body = request.postDataJSON();
+      return body.connectionId === 'demo' && body.database === 'mlc-sandbox' && body.collection === 'orders' &&
+        JSON.stringify(body.pipeline) === pipeline;
+    });
+  }
+  const result = waitForOperation('preview');
   await page.getByRole('button', { name: 'Run preview' }).click();
   const preview = await result;
   assert.equal(preview.status(), 200);
@@ -27,10 +38,14 @@ export async function verifyJoin(page) {
   await table.getByRole('cell', { name: 'EU-South' }).waitFor();
   stages.unshift({ $match: { amount: 42 } });
   await input.fill(JSON.stringify(stages, null, 2));
+  const filteredResult = waitForOperation('preview');
   await page.getByRole('button', { name: 'Run preview' }).click();
+  const filtered = await filteredResult;
+  assert.equal(filtered.status(), 200);
+  assert.deepEqual((await filtered.json()).rows, [['order-001', 'EU-South']]);
   await table.getByRole('cell', { name: 'EU-South' }).waitFor();
   assert.equal(await table.getByRole('row').count(), 2, 'Expected the header and one matching order');
-  const response = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/admin/workspace/explain');
+  const response = waitForOperation('explain');
   await page.getByRole('button', { name: 'Explain', exact: true }).click();
   const raw = await response;
   assert.equal(raw.status(), 200);
