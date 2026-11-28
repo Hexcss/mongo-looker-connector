@@ -6,13 +6,14 @@
     "https://www.googleapis.com/auth/iam"
   ],
   "dataStudio": {
-    "name": "Mongo Looker Connector",
-    "company": "Mongo Looker Connector contributors",
+    "name": "MongoDB Reporting",
+    "company": "Mongo Looker Connector",
     "companyUrl": "https://github.com/Hexcss/mongo-looker-connector",
-    "logoUrl": "https://raw.githubusercontent.com/Hexcss/mongo-looker-connector/736da9e2f2e36bdcdb7213b0205fcd9d01ffc655/connector/icon.png",
-    "addOnUrl": "https://github.com/Hexcss/mongo-looker-connector/blob/736da9e2f2e36bdcdb7213b0205fcd9d01ffc655/docs/looker-studio.md",
+    "logoUrl": "https://raw.githubusercontent.com/Hexcss/mongo-looker-connector/f28a7d1a603e3fd75ef8ec38592facf66d9252b1/connector/icon.png",
+    "addOnUrl": "https://github.com/Hexcss/mongo-looker-connector/blob/167f44fa033a023a149e401f98d9b25bf2ce1f94/docs/looker-studio.md",
     "supportUrl": "https://github.com/Hexcss/mongo-looker-connector/issues",
-    "description": "Report on authorized MongoDB collections through your organization's private reporting gateway.",
+    "shortDescription": "Build reports from MongoDB collections, custom aggregations, and published datasets.",
+    "description": "Explore a MongoDB collection, write a read-only aggregation, or use a dataset prepared by your team. To connect, enter a reporting token from your gateway administrator.",
     "authType": ["KEY"],
     "feeType": ["FREE"]
   }
