@@ -18,6 +18,7 @@ import (
 
 const (
 	sampleRows     = 100
+	previewRows    = 50
 	maxRows        = 1000
 	maxFields      = 256
 	maxNameBytes   = 512
@@ -86,7 +87,7 @@ func Preview(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessa
 			return Result{Fields: []string{}, Rows: [][]any{}}, nil
 		}
 	}
-	return query(ctx, coll, pipeline, fields, 50, nil)
+	return query(ctx, coll, pipeline, fields, previewRows, nil)
 }
 func query(ctx context.Context, coll *mongo.Collection, pipeline json.RawMessage, fields []string, limit int64, dates *DateRange) (Result, error) {
 	if len(fields) == 0 || len(fields) > maxFields {

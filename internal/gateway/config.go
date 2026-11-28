@@ -16,6 +16,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 type connectionConfig struct {
@@ -25,10 +26,11 @@ type connectionConfig struct {
 }
 
 type connection struct {
-	generation string
-	client     *mongo.Client
-	databases  map[string][]string
-	timeout    time.Duration
+	generation     string
+	client         *mongo.Client
+	readPreference *readpref.ReadPref
+	databases      map[string][]string
+	timeout        time.Duration
 }
 
 // Driver debug logs can include complete commands, replies and server addresses.
@@ -136,5 +138,5 @@ func openConnection(uri string, databases map[string][]string) (connection, erro
 		// Driver errors can contain the original URI.
 		return connection{}, errors.New("invalid MongoDB client configuration")
 	}
-	return connection{client: client, databases: databases, timeout: timeout}, nil
+	return connection{client: client, databases: databases, timeout: timeout, readPreference: opts.ReadPreference}, nil
 }
