@@ -4,7 +4,7 @@ Use **MongoDB Reporting** to build a chart from a collection, a custom aggregati
 
 ## Use a gateway URL and reporting key
 
-In the hosted console, open **Query workspace**, select a collection and build the aggregation. **Run preview** shows rows and inferred field types. Choose **Open in Looker Studio**, give the dataset a unique ID and select **Save and open**. The link carries the dataset ID and gateway origin. Its pipeline stays in the gateway.
+In the hosted console, open **Pipeline workspace**, select a collection and build the aggregation. **Run preview** shows rows and inferred field types. Choose **Open in Looker Studio**, give the dataset a unique ID and select **Save and open**. The link carries the dataset ID and gateway origin. Its pipeline stays in the gateway.
 
 An owner issues a reporting key for the saved dataset and selects the fields the key can read. In the generic connector's Google authorization form, enter the public HTTPS gateway origin in **Path** and the reporting token in **Key**. After first-time authorization, reopen the saved link from **Datasets** to restore Google's preselected configuration. A data source stays bound to its selected gateway. [Google’s direct-link guide](https://developers.google.com/data-studio/connector/direct-links)
 

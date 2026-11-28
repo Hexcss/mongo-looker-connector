@@ -14,7 +14,7 @@ Open the hosted console and sign in with your team account. Select a collection,
 python3 deploy/selfhost/init.py --owner admin@example.org
 ```
 
-The installer creates the MongoDB catalog and generates a first-use owner password. Open the local console, choose your own password and add teammates under **Team**. For Google Cloud installations, the Terraform guide covers the hosted service and the operator’s initial owner setup. [Self-hosting guide](deploy/selfhost/README.md) · [Terraform deployment](deploy/terraform/README.md)
+The installer creates the MongoDB catalog and generates a first-use owner password. Open the local console, choose your own password and add teammates under **Team members**. For Google Cloud installations, the Terraform guide covers the hosted service and the operator’s initial owner setup. [Self-hosting guide](deploy/selfhost/README.md) · [Terraform deployment](deploy/terraform/README.md)
 
 ## Publish a managed dataset
 

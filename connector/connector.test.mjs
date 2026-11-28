@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 import test from 'node:test';
+import { Config } from './config-fixture.mjs';
 
 const source = readFileSync(new URL('./Code.gs', import.meta.url), 'utf8');
 const key = 'mlc_' + '1'.repeat(32) + '.' + 'x'.repeat(43);
@@ -12,37 +13,6 @@ const params = {connectionId: 'demo', database: 'sales', collection: 'daily%20or
 const range = {startDate: '2026-01-01', endDate: '2026-01-02'};
 const fields = [{name: '_id', type: 'TEXT'}, {name: 'amount', type: 'NUMBER'},
   {name: 'order.date', type: 'YEAR_MONTH_DAY_SECOND'}];
-
-class Config {
-  questions = [];
-  newSelectSingle() { return this.entry('select'); }
-  newTextArea() { return this.entry('textarea'); }
-  newInfo() {
-    const q = {type: 'info'};
-    this.questions.push(q);
-    return {
-      setId(id) { q.id = id; return this; },
-      setText(text) { q.text = text; return this; }
-    };
-  }
-  entry(type) {
-    const q = {type, choices: [], labels: []};
-    this.questions.push(q);
-    return {
-      setId(id) { q.id = id; return this; },
-      setName(name) { q.name = name; return this; },
-      setHelpText(help) { q.help = help; return this; },
-      setPlaceholder(example) { q.example = example; return this; },
-      setAllowOverride(value) { q.override = value; return this; },
-      setIsDynamic(value) { q.dynamic = value; return this; },
-      addOption(option) { q.choices.push(option.value); q.labels.push(option.label); return this; }
-    };
-  }
-  newOptionBuilder() { return {setLabel(label) { this.label = label; return this; }, setValue(value) { this.value = value; return this; }}; }
-  setIsSteppedConfig(value) { this.stepped = value; }
-  setDateRangeRequired(value) { this.dateRequired = value; }
-  build() { return this; }
-}
 
 function connector(origins) {
   const properties = new Map();
@@ -71,7 +41,7 @@ function connector(origins) {
     PropertiesService: {getUserProperties},
     ScriptApp: {getOAuthToken: () => 'test-user-access'},
     Utilities: {DigestAlgorithm: {}, Charset: {}, computeDigest: (_, name) => [...createHash('sha256').update(name).digest()]},
-    MLC_GATEWAY_URL: origin, MLC_INVOKER: invoker, ...(origins ? {MLC_GATEWAY_ORIGINS: origins} : {}),
+    MLC_GATEWAY_URL: origin, MLC_INVOKER: invoker,
     UrlFetchApp: {fetch(url, opts) {
       const data = opts.payload && JSON.parse(opts.payload);
       calls.push({url, data, payload: opts.payload});
@@ -89,6 +59,7 @@ function connector(origins) {
         if (origins) {
           assert.ok(origins.includes(host));
           assert.deepEqual({...opts.headers}, {'X-MLC-Token': settings.keys[host]});
+          status = settings.statusByHost?.[host] ?? status;
         } else {
           assert.equal(host, origin);
           assert.deepEqual({...opts.headers}, {Authorization: 'Bearer ' + key, 'X-Serverless-Authorization': 'Bearer test-invoker'});
@@ -110,6 +81,7 @@ function connector(origins) {
     }}
   });
   runInContext(source, context);
+  if (origins) runInContext('const MLC_GATEWAY_ORIGINS = Object.freeze(' + JSON.stringify(origins) + ');', context);
   return {api: context, calls, settings, properties, warnings};
 }
 
@@ -387,6 +359,10 @@ test('PATH_KEY keeps each reporting token on its registered HTTPS gateway', () =
   for (const path of [origin, second]) {
     assert.equal(api.setCredentials({pathKey: {path: path + '/', key: settings.keys[path]}}).errorCode, 'NONE');
   }
+  assert.equal(api.isAuthValid(), true);
+  settings.statusByHost = {[second]: 401};
+  assert.equal(api.isAuthValid(), true);
+  settings.statusByHost = {[second]: 503};
   assert.equal(api.isAuthValid(), true);
   const config = api.getConfig({});
   assert.deepEqual(config.questions[0].choices, [origin, second].map(encodeURIComponent));

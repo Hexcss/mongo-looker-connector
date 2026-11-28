@@ -3,7 +3,9 @@
 import json
 import os
 import secrets
+import subprocess
 from contextlib import ExitStack
+from pathlib import Path
 from urllib.parse import parse_qs, quote, urlsplit
 
 from console import _gcloud
@@ -41,7 +43,9 @@ def verify():
         assert params["connectorId"] == [os.environ["EXPECTED_CONNECTOR_ID"]]
         assert json.loads(params["connectorConfig"][0]) == {
             "collection": name, "connectionId": "%40datasets", "gatewayOrigin": quote(origin, safe="")}
-        call("POST", "workspace/open", dict(query, id=name), 409)
+        assert call("POST", "workspace/open", dict(query, id=name)) == result
+        different = dict(query, id=name, pipeline=[*query["pipeline"], {"$limit": 1}])
+        call("POST", "workspace/open", different, 409)
         issued = call("POST", "tokens", {"label": name, "grants": [{"datasetId": name, "fields": ["total"]}]}, 201)
         token_path = "tokens/" + issued["token"]["id"]
         revoke = cleanup.callback(call, "DELETE", token_path, None, 204)
@@ -53,6 +57,12 @@ def verify():
         body = dict(namespace, fields=["total"], pipeline=[{"$sort": {"_id": 1}}])
         for cache in ("MISS", "HIT"):
             assert request(public, "POST", "/api/v1/query", headers, body, cache=cache)["rows"] == [[42]]
+        # Run the actual connector entry points after testing this token's cold and warm cache.
+        # The short-lived key travels only through the child's standard input.
+        adapter = Path(__file__).with_name("workspace_connector.mjs")
+        subprocess.run(["node", str(adapter)], check=True, input=json.dumps({
+            "origin": origin, "key": issued["secret"], "connectorConfig": params["connectorConfig"][0],
+        }), text=True)
         request(public, "POST", "/api/v1/query", headers, dict(body, fields=["order"]), 400)
         revoke("DELETE", token_path, None, 204)
         request(public, "POST", "/api/v1/query", headers, body, 401)
