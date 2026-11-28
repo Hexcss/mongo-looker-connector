@@ -17,6 +17,14 @@ class Config {
   questions = [];
   newSelectSingle() { return this.entry('select'); }
   newTextArea() { return this.entry('textarea'); }
+  newInfo() {
+    const q = {type: 'info'};
+    this.questions.push(q);
+    return {
+      setId(id) { q.id = id; return this; },
+      setText(text) { q.text = text; return this; }
+    };
+  }
   entry(type) {
     const q = {type, choices: [], labels: []};
     this.questions.push(q);
@@ -48,7 +56,11 @@ function connector() {
   });
   const cc = {
     AuthType: {KEY: 'KEY'},
-    newAuthTypeResponse: () => ({setAuthType: auth => ({build: () => ({type: auth})})}),
+    newAuthTypeResponse: () => ({
+      setAuthType(type) { this.type = type; return this; },
+      setHelpUrl(helpUrl) { this.helpUrl = helpUrl; return this; },
+      build() { return {type: this.type, helpUrl: this.helpUrl}; }
+    }),
     newUserError: () => ({setText: text => ({throwException: () => { throw new Error(text); }})}),
     getConfig: () => new Config()
   };
@@ -96,7 +108,9 @@ function connector() {
 
 test('per-user KEY auth validates, stores, rechecks revocation and resets', () => {
   const {api, calls, settings, properties} = connector();
-  assert.equal(api.getAuthType().type, 'KEY');
+  const auth = api.getAuthType();
+  assert.equal(auth.type, 'KEY');
+  assert.equal(auth.helpUrl, 'https://github.com/Hexcss/mongo-looker-connector/blob/167f44fa033a023a149e401f98d9b25bf2ce1f94/docs/looker-studio.md#sign-in-with-a-reporting-token');
   assert.equal(api.setCredentials({key: 'bad'}).errorCode, 'INVALID_CREDENTIALS');
   assert.equal(calls.length, 0);
   assert.equal(api.setCredentials({key}).errorCode, 'NONE');
@@ -125,11 +139,11 @@ test('stepped discovery preserves real names and only selects BSON dates', () =>
   config = api.getConfig({configParams: {...params, queryMode: 'collection'}});
   assert.equal(config.stepped, false);
   assert.equal(config.dateRequired, true);
-  assert.deepEqual(config.questions.map(q => q.choices), [['demo'], ['sales'], ['daily%20orders'], ['collection', 'custom'], ['order.date']]);
+  assert.deepEqual(config.questions.filter(q => q.type === 'select').map(q => q.choices), [['demo'], ['sales'], ['daily%20orders'], ['collection', 'custom'], ['order.date']]);
   settings.fields = fields.slice(0, 2);
   config = api.getConfig({configParams: {...params, queryMode: 'collection'}});
   assert.equal(config.dateRequired, false);
-  assert.equal(config.questions.length, 4);
+  assert.equal(config.questions.filter(q => q.type === 'select').length, 4);
   assert.throws(() => api.getConfig({configParams: {connectionId: 'other'}}), /unavailable/);
 });
 
@@ -194,13 +208,14 @@ test('stepped raw source setup offers a private pipeline editor and optional sou
   settings.fields = fields.concat({name: 'none', type: 'YEAR_MONTH_DAY_SECOND'});
   api.setCredentials({key});
   const mode = api.getConfig({configParams: params});
-  assert.deepEqual(mode.questions.at(-1).labels, ['Collection', 'Custom aggregation']);
+  assert.deepEqual(mode.questions.at(-1).labels, ['Collection documents', 'Custom aggregation']);
   assert.equal(mode.stepped, true);
   const editor = api.getConfig({configParams: {...custom, pipeline: ''}});
   assert.equal(editor.stepped, true);
   const question = editor.questions.at(-1);
   assert.deepEqual([question.id, question.type, question.dynamic, question.override], ['pipeline', 'textarea', true, false]);
   assert.ok(Array.isArray(JSON.parse(question.example)));
+  assert.ok(question.example.includes('\n'));
   assert.equal(calls.filter(call => call.url.endsWith('/schema')).length, 0);
   const dates = api.getConfig({configParams: custom}).questions.at(-1);
   assert.equal(dates.id, 'sourceDateField');
@@ -265,7 +280,7 @@ test('published datasets have no custom mode and keep their configured pipeline 
   api.setCredentials({key});
   const published = {connectionId: '%40datasets', database: 'published', collection: 'weekly'};
   const config = api.getConfig({configParams: published});
-  assert.deepEqual(config.questions.map(q => q.id), ['connectionId', 'database', 'collection', 'dateField']);
+  assert.deepEqual(config.questions.map(q => q.id), ['connectionId', 'collection', 'dateField', 'fieldSummary']);
   assert.equal(config.stepped, false);
   api.getData({configParams: published, fields: [{name: 'amount'}, {name: '_id'}], dateRange: range});
   assert.deepEqual(calls.at(-1).data.pipeline, [{$sort: {_id: 1}}]);
@@ -274,4 +289,82 @@ test('published datasets have no custom mode and keep their configured pipeline 
   assert.throws(() => api.getSchema(forged), /published dataset/i);
   assert.throws(() => api.getData({...forged, fields: [{name: 'amount'}]}), /published dataset/i);
   assert.equal(calls.length, before);
+});
+
+test('published source uses its fixed namespace in setup, schema and data for both saved forms', () => {
+  const {api, calls, settings} = connector();
+  settings.connections = ['@datasets', 'demo'];
+  settings.fields = [{name: 'revenue', type: 'NUMBER'}];
+  settings.rows = [[42]];
+  api.setCredentials({key});
+  for (const languageCode of ['en', 'es-ES']) {
+    const next = api.getConfig({languageCode, configParams: {connectionId: '%40datasets'}});
+    assert.deepEqual(next.questions.map(q => q.name), languageCode === 'en'
+      ? ['Data source', 'Published dataset'] : ['Origen de datos', 'Conjunto de datos publicado']);
+    assert.deepEqual(next.questions[0].choices, ['%40datasets', 'demo']);
+    assert.deepEqual(next.questions[0].labels, [languageCode === 'en' ? 'Published datasets' : 'Conjuntos de datos publicados', 'demo']);
+    for (const extra of [{}, {database: 'published'}]) {
+      const configParams = {connectionId: '%40datasets', collection: 'weekly', ...extra};
+      const done = api.getConfig({configParams, languageCode});
+      assert.equal(done.questions.at(-1).text, languageCode === 'en' ? '1 published field · revenue' : '1 campo publicado · revenue');
+      assert.equal(api.getSchema({configParams}).schema[0].name, 'revenue');
+      assert.equal(api.getData({configParams, fields: [{name:'revenue'}]}).rows[0].values[0], 42);
+    }
+  }
+  assert.ok(calls.filter(c => c.url.endsWith('/schema') || c.url.endsWith('/query'))
+    .every(c => c.data.connectionId === '@datasets' && c.data.database === 'published'));
+  assert.ok(!calls.some(c => c.url.endsWith('/databases')));
+  const forged = {configParams: {connectionId: '%40datasets', database: 'private', collection: 'weekly'}};
+  const before = calls.length;
+  assert.throws(() => api.getConfig({...forged, languageCode:'es'}), /publicad/i);
+  assert.throws(() => api.getSchema(forged), /published/i);
+  assert.throws(() => api.getData({...forged, fields: [{name:'revenue'}]}), /published/i);
+  assert.equal(calls.length, before);
+});
+
+test('sample summary lists up to five permitted output names and never fetches rows or leaks source fields', () => {
+  const {api, calls, settings} = connector();
+  settings.fields = [{name:'unprojected_source', type:'TEXT'}];
+  settings.outputFields = Array.from({length: 7}, (_, i) => ({name:'result' + i, type:'TEXT'}));
+  settings.rows = [['private-row-content']];
+  api.setCredentials({key});
+  for (const languageCode of ['en', 'es-419', 'fr']) {
+    const start = calls.length;
+    const {questions} = api.getConfig({configParams:custom, languageCode});
+    const summary = questions.at(-1);
+    assert.equal(summary.type, 'info');
+    assert.equal(summary.text, (languageCode === 'es-419' ? '7 campos de la muestra' : '7 sampled fields') +
+      ' · result0, result1, result2, result3, result4, …');
+    assert.doesNotMatch(summary.text, /private-row|unprojected_source|result[56]/);
+    assert.equal(calls.slice(start).filter(c => c.url.endsWith('/schema')).length, 2);
+    assert.ok(!calls.slice(start).some(c => c.url.endsWith('/query')));
+  }
+  const longName = '📈'.repeat(60);
+  settings.outputFields = [{name: longName, type: 'NUMBER'}];
+  assert.equal(api.getConfig({configParams: custom}).questions.at(-1).text,
+    '1 sampled field · ' + '📈'.repeat(47) + '…');
+  assert.equal(api.getSchema({configParams: custom}).schema[0].label, longName);
+});
+
+test('Spanish setup retains identifiers and localizes help, validation and gateway errors', () => {
+  const {api, settings} = connector();
+  api.setCredentials({key});
+  const config = configParams => api.getConfig({languageCode:'ES-mx', configParams});
+  const mode = config(params).questions.at(-1);
+  assert.deepEqual(mode.labels, ['Documentos de la colección','Agregación personalizada']);
+  assert.deepEqual(mode.choices, ['collection','custom']);
+  assert.match(mode.help, /colección/);
+  const editor = config({...custom, pipeline:''}).questions.at(-1);
+  assert.equal(editor.name, 'Pipeline de agregación de MongoDB (JSON)');
+  assert.match(editor.help, /etapas/);
+  const dates = config(custom).questions.at(-1);
+  assert.equal(dates.name, 'Filtrar documentos de origen por fecha (UTC)');
+  assert.match(dates.help, /antes/);
+  assert.equal(dates.choices[0], '%24none');
+  assert.equal(dates.labels[0], 'Sin filtro de fecha');
+  assert.throws(() => config({...custom, pipeline:'{' }), /array JSON/i);
+  assert.throws(() => config({connectionId:'missing'}), /disponible/i);
+  settings.status = 403;
+  assert.throws(() => config(params), /acceso denegado/i);
+  assert.throws(() => api.getConfig({languageCode:'fr', configParams:params}), /Access denied/);
 });
