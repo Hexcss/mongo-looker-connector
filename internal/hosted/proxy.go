@@ -3,6 +3,7 @@
 package hosted
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -23,7 +24,7 @@ const cookieName = "__Host-mlc-session"
 const maxBody = 256 << 10
 
 var key = regexp.MustCompile("^[a-zA-Z0-9_-]{43}$")
-var privatePath = regexp.MustCompile("^/api/v1/admin/(connections|datasets|tokens)(/[a-zA-Z0-9_-]{1,64})?$|^/api/v1/admin/preview$")
+var privatePath = regexp.MustCompile(`^/api/v1/admin/((connections|datasets|tokens)(/[A-Za-z0-9_-]{1,64})?|users(/[a-f0-9]{64}(/reset-password)?)?|preview|me|password|bootstrap-owner|workspace/(open|preview|looker/[A-Za-z0-9_-]{1,64}))$`)
 
 //go:embed login.html
 var landing string
@@ -35,9 +36,10 @@ var script string
 var style string
 
 type proxy struct {
-	gateway string
-	client  *http.Client
-	assets  http.Handler
+	gateway    string
+	client     *http.Client
+	assets     http.Handler
+	standalone bool
 }
 
 func Open(ctx context.Context, upstream string) (http.Handler, error) {
@@ -53,7 +55,30 @@ func Open(ctx context.Context, upstream string) (http.Handler, error) {
 		Transport: &oauth2.Transport{Source: source}, Timeout: 25 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	return &proxy{upstream, client, http.StripPrefix("/admin", console.Handler())}, nil
+	return &proxy{gateway: upstream, client: client, assets: http.StripPrefix("/admin", console.Handler())}, nil
+}
+
+// OpenStandalone uses only the upstream selected at service startup. The
+// gateway's administrative routes still require a session or operator proof.
+func OpenStandalone(upstream string) (http.Handler, error) {
+	u, err := url.Parse(upstream)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.Path != "" || u.User != nil || u.ForceQuery || u.RawQuery != "" || u.Fragment != "" {
+		return nil, errors.New("MLC_STANDALONE_UPSTREAM must be an HTTP(S) origin")
+	}
+	client := &http.Client{Timeout: 25 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return &proxy{gateway: upstream, client: client, assets: http.StripPrefix("/admin", console.Handler()), standalone: true}, nil
+}
+
+func (p *proxy) sameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if fetchSite := r.Header.Get("Sec-Fetch-Site"); fetchSite != "" && fetchSite != "same-origin" {
+		return false
+	}
+	if origin == "https://"+r.Host {
+		return true
+	}
+	host := (&url.URL{Host: r.Host}).Hostname()
+	return p.standalone && (host == "localhost" || host == "127.0.0.1" || host == "::1") && origin == "http://"+r.Host
 }
 
 func (p *proxy) upstream(r *http.Request, method, path, authKey, secret string, body io.Reader) (*http.Response, error) {
@@ -61,7 +86,9 @@ func (p *proxy) upstream(r *http.Request, method, path, authKey, secret string, 
 	if err != nil {
 		return nil, err
 	}
-	target.Header.Set(authKey, secret)
+	if authKey != "" {
+		target.Header.Set(authKey, secret)
+	}
 	target.Header.Set("X-MLC-Request", "console")
 	if body != nil {
 		target.Header.Set("Content-Type", "application/json")
@@ -71,16 +98,19 @@ func (p *proxy) upstream(r *http.Request, method, path, authKey, secret string, 
 
 func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
-	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 	h.Set("Cache-Control", "no-store")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("X-Content-Type-Options", "nosniff")
+	if p.reporting(w, r) {
+		return
+	}
 	if r.URL.RawQuery != "" || r.URL.EscapedPath() != r.URL.Path {
 		http.NotFound(w, r)
 		return
 	}
-	if r.Method != "GET" && (r.Header.Get("Origin") != "https://"+r.Host || (r.Header.Get("Sec-Fetch-Site") != "" && r.Header.Get("Sec-Fetch-Site") != "same-origin")) {
+	if r.Method != "GET" && !p.sameOrigin(r) {
 		http.Error(w, "Use the hosted console to send this request.", 403)
 		return
 	}
@@ -90,6 +120,9 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && r.URL.Path == "/":
 		h.Set("Content-Type", "text/html; charset=utf-8")
 		page := landing
+		if p.standalone {
+			page = strings.Replace(page, `id="operator"`, `id="operator" hidden`, 1)
+		}
 		if signed {
 			page = strings.Replace(page, `id="session" hidden`, `id="session"`, 1)
 		}
@@ -102,6 +135,8 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, style)
 	case r.Method == "POST" && r.URL.Path == "/session/redeem":
 		p.redeem(w, r)
+	case r.Method == "POST" && r.URL.Path == "/session/login":
+		p.login(w, r)
 	case !signed:
 		if r.Method == "GET" && r.URL.Path == "/admin/" {
 			http.Redirect(w, r, "/", 303)
@@ -140,15 +175,35 @@ func (p *proxy) redeem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid login link.", 400)
 		return
 	}
-	resp, err := p.upstream(r, "POST", "/api/v1/hosted/exchange", "X-MLC-Login-Ticket", string(raw), nil)
+	p.startSession(w, r, "/api/v1/hosted/exchange", "X-MLC-Login-Ticket", string(raw), nil)
+}
+
+func (p *proxy) login(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Content-Type") != "application/json" {
+		http.Error(w, "Use the console sign-in form.", 415)
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
+	if err != nil {
+		http.Error(w, "Request too large.", 413)
+		return
+	}
+	p.startSession(w, r, "/api/v1/hosted/login", "", "", bytes.NewReader(raw))
+}
+
+func (p *proxy) startSession(w http.ResponseWriter, r *http.Request, path, authHeader, secret string, body io.Reader) {
+	resp, err := p.upstream(r, "POST", path, authHeader, secret, body)
 	if err != nil {
 		http.Error(w, "The gateway is unavailable.", 502)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		if resp.StatusCode == 401 {
-			http.Error(w, "The login link was used or expired.", 401)
+		if resp.StatusCode == 429 {
+			w.Header().Set("Retry-After", "10")
+			http.Error(w, "Too many sign-in attempts.", 429)
+		} else if resp.StatusCode == 401 {
+			http.Error(w, "Sign-in credentials expired or incorrect.", 401)
 		} else {
 			http.Error(w, "The gateway could not complete sign-in.", 502)
 		}
@@ -200,7 +255,7 @@ func (p *proxy) api(w http.ResponseWriter, r *http.Request, session string) {
 		http.Error(w, "Unexpected gateway redirect.", 502)
 		return
 	}
-	if resp.StatusCode == 401 {
+	if resp.StatusCode == 401 || r.URL.Path == "/api/v1/admin/password" && resp.StatusCode == 204 {
 		http.SetCookie(w, sessionCookie("", -1))
 	}
 	if strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {

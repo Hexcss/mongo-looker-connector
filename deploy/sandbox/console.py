@@ -88,9 +88,9 @@ class ConsoleServer(ThreadingHTTPServer):
 # Accept only the embedded UI and known administration/report routes. Paths are forwarded verbatim.
 ID = r"[A-Za-z0-9_-]{1,128}"
 ROUTES = {
-    "GET": re.compile(r"/(?:health|version|admin/(?:console\.(?:css|js)|icons\.svg)?|api/v1/(?:admin/(?:connections|datasets|tokens)|connections(?:/" + ID + r"/databases)?|collections))"),
-    "POST": re.compile(r"/api/v1/(?:admin/(?:connections|datasets|tokens|preview)|schema|query)"),
-    "PUT": re.compile(r"/api/v1/admin/(?:connections|datasets)/" + ID),
+    "GET": re.compile(r"/(?:health|version|admin/(?:console\.(?:css|js)|icons\.svg)?|api/v1/(?:admin/(?:connections|datasets|tokens|me|users|workspace/looker/" + ID + r")|connections(?:/" + ID + r"/databases)?|collections))"),
+    "POST": re.compile(r"/api/v1/(?:admin/(?:connections|datasets|tokens|preview|bootstrap-owner|users|users/[a-f0-9]{64}/reset-password|workspace/(?:preview|open))|schema|query)"),
+    "PUT": re.compile(r"/api/v1/admin/(?:connections|datasets|users)/" + ID),
     "DELETE": re.compile(r"/api/v1/admin/(?:connections|datasets|tokens)/" + ID),
 }
 

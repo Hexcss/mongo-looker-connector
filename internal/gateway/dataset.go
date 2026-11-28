@@ -33,6 +33,14 @@ func (s *Server) adminDatasets(w http.ResponseWriter, r *http.Request) {
 		controlError(w, err)
 		return
 	}
+	if currentAccount(r).Role == control.RoleViewer {
+		items := make([]map[string]string, 0, len(records))
+		for _, d := range records {
+			items = append(items, map[string]string{"id": d.ID})
+		}
+		reply(w, 200, map[string]any{"datasets": items})
+		return
+	}
 	items := make([]datasetInfo, 0, len(records))
 	for _, d := range records {
 		items = append(items, describeDataset(d))
