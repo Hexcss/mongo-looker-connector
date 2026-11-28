@@ -35,8 +35,8 @@ try {
     const request = route.request();
     const target = new URL(request.url());
     const allowed = target.origin === url.origin && (
-      request.method() === 'GET' && (entry && target.pathname === url.pathname || target.pathname.startsWith('/admin/') || ['/api/v1/admin/connections', '/api/v1/admin/tokens'].includes(target.pathname)) ||
-      request.method() === 'POST' && target.pathname === '/api/v1/admin/preview'
+      request.method() === 'GET' && (entry && target.pathname === url.pathname || target.pathname.startsWith('/admin/') || ['/api/v1/admin/me', '/api/v1/admin/connections', '/api/v1/admin/tokens'].includes(target.pathname)) ||
+      request.method() === 'POST' && target.pathname === '/api/v1/admin/workspace/preview'
     );
     if (!allowed) errors.push('Unexpected request');
     return allowed ? route.continue() : route.abort();
@@ -50,20 +50,23 @@ try {
       assert.equal(otherHost.length, 0, 'The independent loopback host received a cookie');
     }
   }
+  await page.getByRole('heading', { name: 'Pipeline workspace' }).waitFor();
+  await page.getByRole('link', { name: 'Connections', exact: true }).click();
   await page.getByRole('heading', { name: 'Connection directory' }).waitFor();
   assert.equal(await page.getByRole('alert').count(), 0);
   await page.getByRole('link', { name: 'Access tokens', exact: true }).click();
   await page.getByRole('region', { name: 'Reporting tokens' }).or(page.getByRole('heading', { name: 'No access tokens yet' })).waitFor();
-  await page.getByRole('link', { name: 'Query preview', exact: true }).click();
+  await page.getByRole('link', { name: 'Pipeline workspace', exact: true }).click();
   const { MLC_SMOKE_CONNECTION, MLC_SMOKE_DATABASE, MLC_SMOKE_COLLECTION } = process.env;
   if (MLC_SMOKE_CONNECTION) await page.getByRole('combobox', { name: 'Connection', exact: true }).selectOption(MLC_SMOKE_CONNECTION);
   if (MLC_SMOKE_DATABASE) await page.getByRole('combobox', { name: 'Database', exact: true }).selectOption(MLC_SMOKE_DATABASE);
   if (MLC_SMOKE_COLLECTION) await page.getByRole('combobox', { name: 'Collection', exact: true }).selectOption(MLC_SMOKE_COLLECTION);
+  await page.locator('.output[aria-busy="false"]').waitFor();
   await page.getByLabel('Aggregation pipeline').fill('[{"$limit":1}]');
-  const response = page.waitForResponse(res => new URL(res.url()).pathname === '/api/v1/admin/preview');
+  const response = page.waitForResponse(res => new URL(res.url()).pathname === '/api/v1/admin/workspace/preview');
   await page.getByRole('button', { name: 'Run preview' }).click();
   assert.equal((await response).status(), 200, 'Read-only preview failed');
-  await page.getByRole('region', { name: 'Preview results' }).or(page.getByRole('heading', { name: 'No rows returned' })).waitFor();
+  await page.getByRole('region', { name: 'Preview results' }).or(page.getByText('No rows returned.', { exact: false })).waitFor();
   assert.deepEqual(errors, []);
   console.log('Browser verified connections, token inventory and a bounded read-only preview.');
 } finally {

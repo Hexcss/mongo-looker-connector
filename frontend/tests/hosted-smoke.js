@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium, firefox } from 'playwright';
-import { verifyDatasets } from './hosted-datasets.js';
+import { verifyDatasets, verifyWorkbench } from './hosted-datasets.js';
 
 // Only the launcher sees the operator credentials. Never log its single-use URL.
 const helper = fileURLToPath(new URL('../../deploy/sandbox/hosted_console.py', import.meta.url));
@@ -33,7 +33,7 @@ try {
   const redeem = page.waitForResponse(r => new URL(r.url()).pathname === '/session/redeem');
   try { await page.goto(entry.href); } catch { throw new Error('Hosted sign-in failed'); }
   await checkWrite(await redeem, 204);
-  await page.getByRole('heading', { name: 'Connection directory' }).waitFor();
+  await page.getByRole('heading', { name: 'Pipeline workspace' }).waitFor();
   assert.ok(!new URL(page.url()).hash, 'Redeemed ticket remains in URL');
   const session = (await page.context().cookies(origin)).find(c => c.secure && c.httpOnly && c.sameSite === 'Strict');
   assert.ok(session, 'Missing protected session cookie');
@@ -42,20 +42,23 @@ try {
     headers: { Origin: 'https://example.invalid', 'X-MLC-Request': 'console' }, data: {}
   });
   assert.equal(crossSite.status(), 403, 'A cross-origin mutation reached the gateway');
-  await page.getByRole('link', { name: 'Query preview', exact: true }).click();
+  await page.getByRole('region', { name: 'Preview results' }).waitFor();
   for (const [label, value] of [['Connection', 'demo'], ['Database', 'mlc-sandbox'], ['Collection', 'orders']]) {
     await page.getByRole('combobox', { name: label, exact: true }).selectOption(value);
   }
   await page.getByLabel('Aggregation pipeline').fill(JSON.stringify([
     { $sort: { amount: -1 } }, { $limit: 1 }, { $project: { _id: 1, amount: 1 } }
   ]));
-  const preview = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/admin/preview');
+  const preview = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/admin/workspace/preview');
   await page.getByRole('button', { name: 'Run preview' }).click();
   const response = await preview;
   await checkWrite(response, 200);
-  assert.deepEqual(await response.json(), { fields: ['_id', 'amount'], rows: [['order-001', 42]] });
+  assert.deepEqual(await response.json(), { fields: [{ name: '_id', type: 'TEXT' }, { name: 'amount', type: 'NUMBER' }], rows: [['order-001', 42]] });
   await page.getByText('order-001', { exact: true }).waitFor();
-  if (process.env.MLC_SMOKE_DATASETS === '1') await verifyDatasets(page, origin);
+  if (process.env.MLC_SMOKE_DATASETS === '1') {
+    await verifyDatasets(page, origin);
+    await verifyWorkbench(page, origin);
+  }
   const replay = await browser.newPage();
   try { await replay.goto(entry.href); } catch { throw new Error('Could not verify consumed login ticket'); }
   await replay.getByText(/link expired or has already been used/i).waitFor();
@@ -64,7 +67,7 @@ try {
   const logout = page.waitForResponse(r => new URL(r.url()).pathname === '/session/logout' && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Sign out' }).click();
   await checkWrite(await logout, 303);
-  await page.getByRole('heading', { name: 'Sign in with your operator account' }).waitFor();
+  await page.getByRole('heading', { name: 'Sign in to your workspace' }).waitFor();
   assert.ok([401, 403].includes((await page.request.get(api, { maxRedirects: 0 })).status()), 'Signed-out session still has access');
   const revoked = await page.request.get(api, { headers: { Cookie: session.name + '=' + session.value }, maxRedirects: 0 });
   assert.equal(revoked.status(), 401, 'The gateway still accepts the signed-out session');
