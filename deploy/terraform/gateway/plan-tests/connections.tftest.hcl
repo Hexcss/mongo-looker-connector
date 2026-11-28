@@ -27,7 +27,7 @@ run "demo_without_secrets" {
       length(google_secret_manager_secret_iam_member.reader) == 0 &&
       { for e in google_cloud_run_v2_service.gateway.template[0].containers[0].env : e.name => e.value } == {
         MONGODB_URI         = "mongodb://fixture.example/mlc-sandbox"
-        GATEWAY_CONNECTIONS = jsonencode([{ id = "demo", uriEnv = "MONGODB_URI", databases = { mlc-sandbox = ["orders"] } }])
+        GATEWAY_CONNECTIONS = jsonencode([{ id = "demo", uriEnv = "MONGODB_URI", databases = { mlc-sandbox = ["orders", "shipping_zones"] } }])
       }
     )
     error_message = "The default service must retain the demo URI and allowlist without enabling Secret Manager."

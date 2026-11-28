@@ -88,7 +88,7 @@ locals {
   demo = [{
     id        = "demo"
     uriEnv    = "MONGODB_URI"
-    databases = { (local.sandbox.database) = ["orders"] }
+    databases = { (local.sandbox.database) = ["orders", "shipping_zones"] }
   }]
   named = [for id, c in var.connections : {
     id        = id

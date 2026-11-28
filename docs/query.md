@@ -38,6 +38,7 @@ Use a JSON array, with one stage per object. The gateway preserves field order w
 | `$unwind` | A single field path such as `"$items"` |
 | `$unset` | One field name or a nonempty array of field names |
 | `$count` | An output field name |
+| `$lookup` | An equality join using four literal strings, `from`, `localField`, `foreignField`, and `as`. The foreign collection must be authorized in the same connection and database. |
 
 All embedded objects and arrays are inspected. The following dollar-prefixed names are accepted in expressions or predicates where the database supports them.
 
@@ -47,7 +48,26 @@ All embedded objects and arrays are inspected. The following dollar-prefixed nam
 | Aggregation and arithmetic | `$sum`, `$avg`, `$min`, `$max`, `$first`, `$last`, `$add`, `$subtract`, `$multiply`, `$divide`, `$mod`, `$abs`, `$round` |
 | Text, dates and arrays | `$concat`, `$toLower`, `$toUpper`, `$year`, `$month`, `$dayOfMonth`, `$dateToString`, `$size`, `$arrayElemAt` |
 
-Stages that write, join another collection, inspect server metadata or execute JavaScript fall outside this subset. The database also validates operator positions, operands and version-specific behavior. Check the [Firestore MongoDB compatibility tables](https://docs.cloud.google.com/firestore/mongodb-compatibility/docs/behavior-differences) for your database version.
+The gateway rejects nested lookup pipelines, cross-database joins, write stages and server-side JavaScript. The database also validates operator positions, operands and version-specific behavior. Check the [Firestore MongoDB compatibility tables](https://docs.cloud.google.com/firestore/mongodb-compatibility/docs/behavior-differences) for your database version.
+
+## Join two collections and inspect an execution plan
+
+In the sandbox, open **Pipeline workspace**, select `demo → mlc-sandbox → orders`, and choose **Join collections** in the stage builder. Choose `shipping_zones` as the other collection, use `_id` on both sides, and name the output `zone`. **One row per match** adds `$unwind`; unmatched orders then drop out of the result. The plain `$lookup` keeps every input order and attaches an array of matching zones.
+
+To try the indexed fixture, paste this complete pipeline or build it stage by stage.
+
+```json
+[
+  {"$match": {"amount": 42}},
+  {"$lookup": {"from": "shipping_zones", "localField": "_id", "foreignField": "_id", "as": "zone"}},
+  {"$unwind": "$zone"},
+  {"$project": {"_id": 0, "order": "$_id", "region": "$zone.region", "amount": 1}}
+]
+```
+
+**Run preview** should show `order-001`, `EU-South`, and `42`. **Explain** executes the same pipeline with a 50-row output limit and shows the database's execution statistics. The number of documents examined can exceed 50, particularly when MongoDB must group or sort many inputs. Index entries examined are a separate measure. The database may omit a metric or use a collection scan. Try removing the first match stage and comparing both plans. A published dataset or a Looker report can have a different plan because its filters, projection and result limit differ.
+
+Raw reporting tokens need collection grants for the base and every lookup target. A dataset-scoped token can read only its declared fields; the saved pipeline and its currently authorized sources determine the rest. If an owner removes a join target from the connection, the gateway rechecks that dependency even for cached results.
 
 ## Field names and values
 

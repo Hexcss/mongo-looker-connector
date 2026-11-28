@@ -67,6 +67,21 @@ resource "google_firestore_database" "fixture" {
   depends_on                          = [google_project_service.sandbox["firestore.googleapis.com"]]
 }
 
+# A selective fixture query demonstrates an actual index in the Explain panel.
+resource "google_firestore_index" "orders_amount" {
+  project     = var.project_id
+  database    = google_firestore_database.fixture.name
+  collection  = "orders"
+  query_scope = "COLLECTION_GROUP"
+  api_scope   = "MONGODB_COMPATIBLE_API"
+  density     = "DENSE"
+
+  fields {
+    field_path = "amount"
+    order      = "ASCENDING"
+  }
+}
+
 resource "google_project_iam_member" "fixture_reader" {
   project = var.project_id
   role    = "roles/datastore.viewer"

@@ -62,6 +62,8 @@ def verify():
         assert all(set(d) == {"id"} for d in console(session, "GET", "datasets")["datasets"])
         for path in ["users", "connections", "tokens"]:
             console(session, "GET", path, code=403)
+        sample = {"connectionId": "demo", "database": "mlc-sandbox", "collection": "orders", "pipeline": [{"$match": {"amount": 42}}]}
+        console(session, "POST", "workspace/explain", sample, 403)
         request(gateway, "PUT", member, admin_headers, {"role": "editor", "disabled": False})
         console(session, "GET", "me", code=401)
         session = login(password)
@@ -71,6 +73,7 @@ def verify():
             "connectionId": "demo", "database": "mlc-sandbox", "collection": "orders",
             "pipeline": [{"$sort": {"amount": -1, "_id": 1}}, {"$limit": 1}, {"$project": {"_id": 0, "amount": 1}}]})
         assert result["rows"] == [[42]]
+        assert console(session, "POST", "workspace/explain", sample)["documentsExamined"] >= 1
         console(session, "POST", "tokens", {}, 403)
         reset = request(gateway, "POST", member + "/reset-password", admin_headers, {})
         console(session, "GET", "me", code=401)

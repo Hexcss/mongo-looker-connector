@@ -73,7 +73,7 @@ if "demo" not in request(base + "/connections", headers=admin)["connections"]:
     raise RuntimeError("Missing configured fixture")
 check(request(base + "/connections/demo/databases", headers=admin), {"databases": [database]}, "databases")
 check(request(base + "/collections?connectionId=demo&database=" + database, headers=admin),
-      {"collections": ["orders"]}, "collections")
+      {"collections": ["orders", "shipping_zones"]}, "collections")
 schema = request(base + "/schema", "POST", fixture, admin)["fields"]
 check({v["name"]: v["type"] for v in schema},
       {"_id": "TEXT", "amount": "NUMBER", "orderedAt": "YEAR_MONTH_DAY_SECOND"}, "schema")

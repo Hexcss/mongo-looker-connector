@@ -21,3 +21,10 @@ for (const order of [
 ]) {
   sample.orders.updateOne({_id: order._id}, {$setOnInsert: order}, {upsert: true});
 }
+for (const zone of [
+  {_id: 'order-1001', region: 'EU-South'},
+  {_id: 'order-1002', region: 'EU-West'},
+]) {
+  sample.shipping_zones.updateOne({_id: zone._id}, {$setOnInsert: zone}, {upsert: true});
+}
+sample.orders.createIndex({amount: 1});
