@@ -16,19 +16,19 @@ import (
 )
 
 type Grant struct {
-	Fields       []string `json:"fields,omitempty" firestore:"fields,omitempty"`
-	ConnectionID string   `json:"connectionId" firestore:"connectionId"`
-	Database     string   `json:"database" firestore:"database"`
-	Collection   string   `json:"collection" firestore:"collection"`
-	Generation   string   `json:"generation,omitempty" firestore:"generation"`
+	Fields       []string `json:"fields,omitempty" firestore:"fields,omitempty" bson:"fields"`
+	ConnectionID string   `json:"connectionId" firestore:"connectionId" bson:"connectionId"`
+	Database     string   `json:"database" firestore:"database" bson:"database"`
+	Collection   string   `json:"collection" firestore:"collection" bson:"collection"`
+	Generation   string   `json:"generation,omitempty" firestore:"generation" bson:"generation"`
 }
 
 type Token struct {
-	ID        string    `json:"id" firestore:"-"`
-	Label     string    `json:"label" firestore:"label"`
-	Grants    []Grant   `json:"grants" firestore:"grants"`
-	CreatedAt time.Time `json:"createdAt" firestore:"createdAt"`
-	Revoked   bool      `json:"revoked" firestore:"revoked"`
+	ID        string    `json:"id" firestore:"-" bson:"_id"`
+	Label     string    `json:"label" firestore:"label" bson:"label"`
+	Grants    []Grant   `json:"grants" firestore:"grants" bson:"grants"`
+	CreatedAt time.Time `json:"createdAt" firestore:"createdAt" bson:"createdAt"`
+	Revoked   bool      `json:"revoked" firestore:"revoked" bson:"revoked"`
 }
 
 type tokenRecord struct {
@@ -69,31 +69,38 @@ func (r tokenRecord) matches(raw string) bool {
 	return !r.Revoked && subtle.ConstantTimeCompare(r.Digest, hash[:]) == 1
 }
 
-func (s *Store) Issue(ctx context.Context, label string, grants []Grant) (Token, string, error) {
+func validateGrants(label string, grants []Grant) error {
 	if !validName(label) || len(label) > 128 || len(grants) == 0 || len(grants) > 256 {
-		return Token{}, "", ErrInvalid
+		return ErrInvalid
 	}
 	seen := make(map[[3]string]bool, len(grants))
 	for _, g := range grants {
 		key := [3]string{g.ConnectionID, g.Database, g.Collection}
 		if !validName(g.Database) || !validName(g.Collection) || !validName(g.Generation) || seen[key] {
-			return Token{}, "", ErrInvalid
+			return ErrInvalid
 		}
 		if g.ConnectionID == DatasetConnection {
 			if g.Database != DatasetDatabase || !connectionID.MatchString(g.Collection) || len(g.Fields) == 0 || len(g.Fields) > 256 {
-				return Token{}, "", ErrInvalid
+				return ErrInvalid
 			}
 			names := map[string]bool{}
 			for _, name := range g.Fields {
 				if !validName(name) || len(name) > 512 || names[name] {
-					return Token{}, "", ErrInvalid
+					return ErrInvalid
 				}
 				names[name] = true
 			}
 		} else if !connectionID.MatchString(g.ConnectionID) || len(g.Fields) != 0 {
-			return Token{}, "", ErrInvalid
+			return ErrInvalid
 		}
 		seen[key] = true
+	}
+	return nil
+}
+
+func (s *Store) Issue(ctx context.Context, label string, grants []Grant) (Token, string, error) {
+	if err := validateGrants(label, grants); err != nil {
+		return Token{}, "", err
 	}
 	row, raw := newBearer()
 	row.Label = label
