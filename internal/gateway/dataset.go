@@ -76,8 +76,8 @@ func (s *Server) saveDataset(w http.ResponseWriter, r *http.Request) {
 		controlError(w, err)
 		return
 	}
-	if !slices.Contains(source.Databases[d.Database], d.Collection) {
-		notConfigured(w)
+	if err := authorizePipeline(source.Databases[d.Database], d.Collection, d.Pipeline); err != nil {
+		controlError(w, err)
 		return
 	}
 	d.SourceGeneration = source.Generation
@@ -117,10 +117,12 @@ func (s *Server) datasetSource(ctx context.Context, d control.Dataset) (control.
 	if err != nil {
 		return c, err
 	}
-	if c.Generation != d.SourceGeneration || !slices.Contains(c.Databases[d.Database], d.Collection) {
+	if c.Generation != d.SourceGeneration {
 		return control.Connection{}, control.ErrNotFound
 	}
-	return c, nil
+	// A dataset grant gives access to the published output only. The source's
+	// live allowlist remains authoritative for all underlying namespaces.
+	return c, authorizePipeline(c.Databases[d.Database], d.Collection, d.Pipeline)
 }
 
 func (s *Server) datasetGrant(ctx context.Context, scope scope) (control.Grant, error) {

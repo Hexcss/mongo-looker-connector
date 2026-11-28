@@ -11,8 +11,9 @@ The first milestone proves that a company can query its own MongoDB data through
 | **v0.5 · Custom aggregations in Looker Studio** | [v0.5.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.5.0) | A report author enters a read-only pipeline for an authorized collection during data source setup and charts fields from its output. |
 | **v0.6 · Looker Studio setup** | [v0.6.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.6.0) | Authors can configure an authorized source in English or Spanish and review the fields it provides before connecting. |
 | **v0.7 · Hosted query workspace and teams** | [Release and sandbox verification](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.7.0) | Team members sign in directly, preview rows and fields, publish a saved pipeline and open its configured Looker Studio data source. A fresh self-hosted install initializes its MongoDB catalog. |
+| **v0.8 · Authorized joins and Explain** | [Release and verification record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.8.0) | Editors can join authorized collections and inspect measured scan counts and index use. Published results respect live permissions on both sources. |
 | **v1.0 · Self-hosted release** | Planned | A new operator can install and upgrade the gateway, configure supported providers and use Looker Studio from the web console without source edits. |
-| **v1.x · Advanced analytics** | Planned | Prioritize the visual aggregation builder, expanded filter pushdown, explain plans, shared caching, monitoring, and private networking against operator needs. |
+| **v1.x · Advanced analytics** | Planned | Prioritize the visual aggregation builder, expanded filter pushdown, shared caching, monitoring, and private networking against operator needs. |
 
 ## v0.1 delivery record
 
@@ -56,6 +57,10 @@ The [v0.3.1 maintenance release](https://github.com/Hexcss/mongo-looker-connecto
 ## v0.7 verification
 
 The [workspace smoke](../../deploy/sandbox/workspace_smoke.py) checks typed results, publication, handoff parameters, field restrictions and revocation through the public reporting origin. The [self-hosting guide](../../deploy/selfhost/README.md) covers fresh MongoDB installations. Existing Cloud installations can continue using their Firestore catalog and existing connector deployment. An in-place migration of that catalog is a separate upgrade task.
+
+## v0.8 verification
+
+The [sandbox join check](../../deploy/sandbox/joins_smoke.py) compares preview and reporting rows for the indexed two-collection fixture, checks Explain against the live database and removes a joined collection after warming a dataset cache. The [query guide](../query.md#join-two-collections-and-inspect-an-execution-plan) reproduces the same join in the hosted editor.
 
 ## Next milestone
 

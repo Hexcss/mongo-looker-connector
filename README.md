@@ -8,6 +8,8 @@
 
 Open the hosted console and sign in with your team account. Select a collection, add a **Match**, **Sort**, or **Group** stage with the stage builder, or edit the aggregation as JSON. **Run preview** displays the result rows and field types. Choose **Open in Looker Studio** to save the pipeline as a dataset and open its preconfigured data source. Owners grant reporting access by dataset and field. [Console guide](docs/administration.md) · [Looker Studio setup](docs/looker-studio.md#use-a-gateway-url-and-reporting-key)
 
+To join data from another collection, choose **Join collections** and select the two matching fields. **Explain** shows the indexes the database used and how many documents it examined. The sandbox includes an orders-to-shipping-regions example. [Try the join](docs/query.md#join-two-collections-and-inspect-an-execution-plan)
+
 ### Start a new workspace
 
 ```sh

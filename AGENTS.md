@@ -1,6 +1,6 @@
 # Working on Mongo Looker Connector
 
-The gateway runs in the operator's Google Cloud project. It provides read-only access to explicitly configured MongoDB collections. The public API is versioned independently of the future Looker Studio connector. Start with the [README](README.md) and [roadmap](docs/roadmap/README.md) to see what ships today.
+The gateway runs in the operator's Google Cloud project. It provides read-only access to explicitly configured MongoDB collections. The hosted workspace and Looker Studio connector use the versioned gateway API. Start with the [README](README.md) and [roadmap](docs/roadmap/README.md) to see what ships today.
 
 <!-- CODEGRAPH_START -->
 ## CodeGraph
@@ -23,6 +23,6 @@ If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is 
 ## Before handing off
 
 - Use [SKILLS.md](SKILLS.md) for the task-specific checks. Update public API or deployment examples in the same PR as behavior changes.
-- Keep connection strings, tokens, customer data, Terraform state, and personal account identifiers out of Git and logs. Use read-only database identities for the gateway. Apply the same namespace checks to discovery, schema sampling and queries.
+- Keep connection strings, tokens, customer data, Terraform state, and personal account identifiers out of Git and logs. Use read-only database identities for the gateway. Apply the same namespace checks to discovery, sampling, Explain and queries. Recheck joined collections on cached and uncached dataset reads.
 - Update [the roadmap](docs/roadmap/README.md) when a milestone changes state. Link the merged PR, test run, deployment verification or release that supports the change. State what remains unverified.
 - Keep the next release number in `VERSION` and user-visible changes in [CHANGELOG.md](CHANGELOG.md). Use patch releases for fixes and minor releases for new pre-1.0 milestones. From 1.0 onward, bump major for incompatible public API changes, minor for compatible additions, and patch for fixes.

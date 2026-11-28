@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.8.0)
+
+- Build same-database equality joins with authorized collections in the pipeline editor, including field suggestions and an option to unwind matches into rows.
+- Inspect the indexes used, documents examined and index entries examined for a bounded pipeline using the source database's execution statistics.
+- Recheck every saved join dependency before returning dataset results, including cached results. The sandbox ships a two-collection indexed fixture.
+
 ## 0.7.0
 
 - Build an aggregation in the hosted query workspace with a stage builder, field suggestions and a typed preview. Save it as a dataset and open its preconfigured Looker Studio source.

@@ -3,6 +3,7 @@ package gateway
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"maps"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Hexcss/mongo-looker-connector/internal/control"
+	"github.com/Hexcss/mongo-looker-connector/internal/engine"
 	"google.golang.org/api/idtoken"
 )
 
@@ -218,7 +220,25 @@ func allowedDatabases(c control.Connection, token *control.Token) map[string][]s
 	return dbs
 }
 
-func (s *Server) resolve(r *http.Request, id, db, collection string) (connection, func(), error) {
+// The base and every lookup target must be visible in the same live database
+// grant. A missing foreign grant gets the same response as a missing base.
+func authorizePipeline(visible []string, base string, raw json.RawMessage) error {
+	if !slices.Contains(visible, base) {
+		return control.ErrNotFound
+	}
+	foreign, err := engine.LookupCollections(raw)
+	if err != nil {
+		return err
+	}
+	for _, name := range foreign {
+		if !slices.Contains(visible, name) {
+			return control.ErrNotFound
+		}
+	}
+	return nil
+}
+
+func (s *Server) resolve(r *http.Request, id, db, collection string, raw json.RawMessage) (connection, func(), error) {
 	token := reportToken(r)
 	if token != nil && !slices.ContainsFunc(token.Grants, func(g control.Grant) bool {
 		return g.ConnectionID == id && (db == "" || db == g.Database) && (collection == "" || collection == g.Collection)
@@ -230,8 +250,13 @@ func (s *Server) resolve(r *http.Request, id, db, collection string) (connection
 		return connection{}, nil, err
 	}
 	visible := allowedDatabases(meta, token)
-	if len(visible) == 0 || (db != "" && len(visible[db]) == 0) || (collection != "" && !slices.Contains(visible[db], collection)) {
+	if len(visible) == 0 || (db != "" && len(visible[db]) == 0) {
 		return connection{}, nil, control.ErrNotFound
+	}
+	if collection != "" {
+		if err := authorizePipeline(visible[db], collection, raw); err != nil {
+			return connection{}, nil, err
+		}
 	}
 	return s.openRecord(r.Context(), meta, visible)
 }
@@ -260,7 +285,9 @@ func (s *Server) openRecord(ctx context.Context, meta control.Connection, visibl
 
 func controlError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, control.ErrInvalid):
+	case errors.Is(err, engine.ErrLimit):
+		fail(w, http.StatusRequestEntityTooLarge, "limit_exceeded", "Report exceeds a gateway limit.")
+	case errors.Is(err, engine.ErrInvalid), errors.Is(err, control.ErrInvalid):
 		invalidRequest(w)
 	case errors.Is(err, control.ErrNotFound):
 		notConfigured(w)

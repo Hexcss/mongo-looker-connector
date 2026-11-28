@@ -1,6 +1,6 @@
 # Managed datasets
 
-A managed dataset is a named, read-only view of one configured collection. Its definition includes a MongoDB aggregation pipeline and an ordered list of output fields with fixed types. A report author can select the published fields their token permits. The gateway runs the saved pipeline when it needs data.
+A managed dataset is a named, read-only view of a configured collection and any authorized collections joined by its saved pipeline. Its definition includes a MongoDB aggregation pipeline and an ordered list of output fields with fixed types. A report author can select the published fields their token permits. The gateway checks that every joined collection is still configured before serving a result, including a cache hit. Use `$unwind` and `$project` to publish scalar fields from joined records.
 
 ## Publish a view
 

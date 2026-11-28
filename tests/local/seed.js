@@ -2,7 +2,7 @@
 const analytics = db.getSiblingDB("analytics");
 analytics.createRole({
   role: "ordersReader",
-  privileges: [{ resource: { db: "analytics", collection: "orders" }, actions: ["find"] }],
+  privileges: ["orders", "shipping_zones"].map(collection => ({ resource: { db: "analytics", collection }, actions: ["find"] })),
   roles: [],
 });
 analytics.createUser({
@@ -14,3 +14,8 @@ analytics.orders.insertMany([
   { _id: "order-001", amount: 42, customer: { city: "Madrid" }, paid: true },
   { _id: "order-002", amount: 17, customer: { city: "Porto" }, paid: false },
 ]);
+analytics.shipping_zones.insertMany([
+  { _id: "order-001", region: "EU-South" },
+  { _id: "order-002", region: "EU-West" },
+]);
+analytics.orders.createIndex({ amount: 1 });

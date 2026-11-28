@@ -81,3 +81,27 @@ func TestMalformedStageArgumentsRejectedBeforeDatabase(t *testing.T) {
 		}
 	}
 }
+
+func TestPipelineLookupCollections(t *testing.T) {
+	raw := json.RawMessage(`[{"$lookup":{"as":"shipping.zone","from":"shipping_zones","foreignField":"region.code","localField":"address.region"}},{"$unwind":"$shipping.zone"},{"$lookup":{"from":"accounts","localField":"accountId","foreignField":"_id","as":"account"}}]`)
+	got, err := LookupCollections(raw)
+	if err != nil || !reflect.DeepEqual(got, []string{"shipping_zones", "accounts"}) {
+		t.Fatalf("lookup dependencies %v: %v", got, err)
+	}
+	for _, input := range []string{
+		`{"from":"zones","localField":"region","foreignField":"_id"}`,
+		`{"from":{"db":"other","coll":"zones"},"localField":"region","foreignField":"_id","as":"zone"}`,
+		`{"from":"zones","localField":"region","foreignField":"_id","as":"zone","pipeline":[]}`,
+		`{"from":"zones","localField":"region","foreignField":"_id","as":"zone","let":{}}`,
+		`{"from":"zones","localField":"region","foreignField":"_id","as":"zone","as":"other"}`,
+		`{"from":"zones","localField":"region","foreignField":"$name","as":"zone"}`,
+		`{"from":"zones","localField":"a..b","foreignField":"_id","as":"zone"}`,
+		`{"from":"zones","localField":"region","foreignField":"_id","as":""}`,
+		`{"from":"zones","localField":"region","foreignField":"_id","as":1}`,
+		`{"from":"","localField":"region","foreignField":"_id","as":"zone"}`,
+	} {
+		if _, err := LookupCollections(json.RawMessage(`[{"$lookup":` + input + `}]`)); !errors.Is(err, ErrInvalid) {
+			t.Errorf("accepted invalid lookup %s (%v)", input, err)
+		}
+	}
+}

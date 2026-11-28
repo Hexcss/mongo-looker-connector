@@ -7,6 +7,7 @@ import { ActionForm, Alert, Empty, Icon } from './ui';
 type Sample = { fields: DatasetField[]; rows: Result['rows'] };
 type Source = { connectionId: string; database: string; collection: string };
 type Launch = { datasetId: string; url: string };
+type Plan = { documentsExamined: number | null; keysExamined: number | null; indexesUsed: string[] | null; rowLimit: number };
 
 function pipelineBody(source: Source, pipeline: string, id?: string) {
   let stages: unknown;
@@ -49,9 +50,51 @@ const operations = [
   { op: '$sort', title: 'Sort documents', hint: 'Order documents by a field.' },
   { op: '$project', title: 'Select a field', hint: 'Keep a field in the output, along with the document ID.' },
   { op: '$group', title: 'Group and count', hint: 'Count the documents for each distinct field value.' },
-  { op: '$limit', title: 'Limit rows', hint: 'Keep the first rows at this point in the pipeline.' }
+  { op: '$limit', title: 'Limit rows', hint: 'Keep the first rows at this point in the pipeline.' },
+  { op: '$lookup', title: 'Join collections', hint: 'Match equal field values from a collection in this database.' }
 ];
-function StageBuilder({ sample, append }: { sample: Sample | null; append: (stage: string) => void }) {
+function JoinFields({ source, collections }: { source: Source; collections: string[] }) {
+  const [selection, setSelection] = useState('');
+  const target = collections.includes(selection) ? selection : collections.find(c => c !== source.collection) ?? source.collection;
+  const [suggestions, setSuggestions] = useState<DatasetField[]>([]);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    setSuggestions([]); setError('');
+    api('workspace/preview', 'POST', pipelineBody({ ...source, collection: target }, '[{"$limit":1}]'), controller.signal)
+      .then(r => r.json()).then((result: Sample) => { if (!controller.signal.aborted) setSuggestions(result.fields); })
+      .catch(reason => { if (!controller.signal.aborted) setError(message(reason)); });
+    return () => controller.abort();
+  }, [source.connectionId, source.database, target]);
+  return <>
+    <label>Join collection<select name="from" value={target} onChange={e => setSelection(e.target.value)}>
+      {collections.map(c => <option key={c}>{c}</option>)}
+    </select></label>
+    <label>Foreign field<input name="foreignField" key={target} required list="join-fields" defaultValue="_id" />
+      <datalist id="join-fields">{suggestions.map(f => <option key={f.name} value={f.name} />)}</datalist></label>
+    {error && <p className="stage-hint" role="status">Field suggestions unavailable. {error} You can enter a field name.</p>}
+    <label>Output field<input name="as" key={target} required defaultValue={target.replace(/[^a-zA-Z0-9_]/g, '_') + '_match'} /></label>
+    <label className="join-unwind"><input name="unwind" type="checkbox" defaultChecked />One row per match</label>
+    <p className="stage-hint">Adds an <code>$unwind</code> stage and skips unmatched rows. Clear to keep matches in an array.</p>
+  </>;
+}
+
+function ExecutionPlan({ value }: { value: Plan }) {
+  return <section className="execution-plan" aria-label="Execution plan">
+    <h3>Execution plan</h3>
+    <p>Measured with a {value.rowLimit}-row output limit.</p>
+    <dl>
+      <div><dt>Documents scanned</dt><dd>{value.documentsExamined?.toLocaleString() ?? 'Unavailable'}</dd></div>
+      <div><dt>Index entries scanned</dt><dd>{value.keysExamined?.toLocaleString() ?? 'Unavailable'}</dd></div>
+      <div><dt>Indexes used</dt><dd>{value.indexesUsed === null ? 'Unavailable' : value.indexesUsed.length === 0 ? 'None' :
+        <ul>{value.indexesUsed.map(index => <li key={index}><code>{index}</code></li>)}</ul>}</dd></div>
+    </dl>
+  </section>;
+}
+
+function StageBuilder({ source, collections, sample, append }: {
+  source: Source; collections: string[]; sample: Sample | null; append: (...stages: string[]) => void;
+}) {
   const [operation, choose] = useState('$match');
   const [field, setField] = useState<string | null>(null);
   const [value, setValue] = useState('');
@@ -64,9 +107,25 @@ function StageBuilder({ sample, append }: { sample: Sample | null; append: (stag
   const exampleText = example == null ? '' : String(example);
   const kind = sample?.fields[index]?.type;
   const active = operations.find(item => item.op === operation)!;
-  function insert(event: FormEvent) {
+  function insert(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError('');
     try {
+      if (operation === '$lookup') {
+        const form = new FormData(event.currentTarget);
+        const from = String(form.get('from'));
+        const foreignField = String(form.get('foreignField')).trim();
+        const alias = String(form.get('as')).trim();
+        const paths = [name, foreignField, alias];
+        if (!collections.includes(from) || paths.some(path => !path || /[\\\0]/.test(path) ||
+          path.split('.').some(part => !part || part.startsWith('$') || part.trim() !== part))) {
+          throw new Error('Choose an available collection and use dotted field names without empty or dollar-prefixed segments.');
+        }
+        const lookup = JSON.stringify({ $lookup: { from, localField: name, foreignField, as: alias } }, null, 2);
+        const stages = [lookup];
+        if (form.has('unwind')) stages.push(JSON.stringify({ $unwind: '$' + alias }));
+        append(...stages);
+        return;
+      }
       const key = JSON.stringify(name);
       let operand: string;
       if (operation === '$limit') operand = value || '10';
@@ -90,8 +149,9 @@ function StageBuilder({ sample, append }: { sample: Sample | null; append: (stag
     <label>Operation<select value={operation} onChange={e => { choose(e.target.value); setValue(''); setError(''); }}>{operations.map(item =>
       <option key={item.op} value={item.op}>{item.title} · {item.op}</option>)}</select></label>
     <p className="stage-hint">{active.hint}</p>
-    {operation !== '$limit' && <label>Field<input list="workspace-fields" required value={name} placeholder="Field name" onChange={e => { setField(e.target.value); setValue(''); }} />
+    {operation !== '$limit' && <label>{operation === '$lookup' ? 'Local field' : 'Field'}<input list="workspace-fields" required value={name} placeholder="Field name" onChange={e => { setField(e.target.value); setValue(''); }} />
       <datalist id="workspace-fields">{names.map(item => <option key={item} value={item} />)}</datalist></label>}
+    {operation === '$lookup' && <JoinFields source={source} collections={collections} />}
     {operation === '$match' && <label>Equals<input value={value} placeholder={exampleText || 'Value'} required={example == null} onChange={e => setValue(e.target.value)} /></label>}
     {operation === '$sort' && <label>Order<select value={direction} onChange={e => setDirection(e.target.value)}>
       <option value="-1">Descending</option><option value="1">Ascending</option></select></label>}
@@ -118,12 +178,12 @@ export function Workbench({ items, initialID, owner }: { items: Connection[]; in
       <label>Connection<select value={connection.id} onChange={e => { setID(e.target.value); setDB(''); setColl(''); }}>{items.map(item => <option key={item.id}>{item.id}</option>)}</select></label>
       <Icon name="right" /><label>Database<select value={database ?? ''} onChange={e => { setDB(e.target.value); setColl(''); }}>{databases.map(name => <option key={name}>{name}</option>)}</select></label>
       <Icon name="right" /><label>Collection<select value={collection ?? ''} onChange={e => setColl(e.target.value)}>{collections.map(name => <option key={name}>{name}</option>)}</select></label>
-    </section>{collection ? <Pipeline key={JSON.stringify([connection.id, database, collection])} source={{ connectionId: connection.id, database, collection }} pipeline={pipeline} edit={setPipeline} owner={owner} /> :
+    </section>{collection ? <Pipeline key={JSON.stringify([connection.id, connection.revision, database, collection, collections])} source={{ connectionId: connection.id, database, collection }} collections={collections} pipeline={pipeline} edit={setPipeline} owner={owner} /> :
       <section className="panel"><Empty icon="folder" title="No collection selected">Choose a connection with an available collection.</Empty></section>}</>}
   </>;
 }
 
-function Pipeline({ source, pipeline, edit, owner }: { source: Source; pipeline: string; edit: (value: string) => void; owner: boolean }) {
+function Pipeline({ source, collections, pipeline, edit, owner }: { source: Source; collections: string[]; pipeline: string; edit: (value: string) => void; owner: boolean }) {
   const [sample, setSample] = useState<Sample | null>(null);
   const [preview, setPreview] = useState<{ text: string; result: Sample } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -132,6 +192,10 @@ function Pipeline({ source, pipeline, edit, owner }: { source: Source; pipeline:
   const [publish, setPublish] = useState(false);
   const [id, setID] = useState('');
   const [launch, setLaunch] = useState<Launch | null>(null);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [planError, setPlanError] = useState('');
+  const [explaining, setExplaining] = useState(false);
+  const explainRequest = useRef<AbortController | null>(null);
   const [sampling, setSampling] = useState(true);
   const [sampleError, setSampleError] = useState('');
   const request = useRef<AbortController | null>(null);
@@ -149,13 +213,14 @@ function Pipeline({ source, pipeline, edit, owner }: { source: Source; pipeline:
       if (!controller.signal.aborted) setSample(data);
     }).catch(err => { if (!controller.signal.aborted) setSampleError(message(err)); })
       .finally(() => { if (!controller.signal.aborted) setSampling(false); });
-    return () => { controller.abort(); request.current?.abort(); };
+    return () => { controller.abort(); request.current?.abort(); explainRequest.current?.abort(); };
   }, [source.connectionId, source.database, source.collection]);
   const empty = /^\s*\[\s*\]\s*$/.test(pipeline);
   const result = error ? null : preview?.text === pipeline ? preview.result : empty ? sample : null;
   const stageCount = (() => { try { const stages = JSON.parse(pipeline); return Array.isArray(stages) ? stages.length : null; } catch { return null; } })();
   function change(text: string) {
-    request.current?.abort(); setBusy(false); setError(''); setLaunch(null); edit(text);
+    request.current?.abort(); setBusy(false); setError(''); setPreview(null); setLaunch(null);
+    explainRequest.current?.abort(); setExplaining(false); setPlan(null); setPlanError(''); edit(text);
   }
   async function run() {
     request.current?.abort();
@@ -168,10 +233,21 @@ function Pipeline({ source, pipeline, edit, owner }: { source: Source; pipeline:
     } catch (err) { if (!controller.signal.aborted) setError(message(err)); }
     finally { if (!controller.signal.aborted) setBusy(false); }
   }
-  function add(stage: string) {
+  async function explain() {
+    explainRequest.current?.abort();
+    const controller = new AbortController();
+    explainRequest.current = controller; setExplaining(true); setPlanError(''); setPlan(null);
+    try {
+      const response = await api('workspace/explain', 'POST', pipelineBody(source, pipeline), controller.signal);
+      const data: Plan = await response.json();
+      if (!controller.signal.aborted) setPlan(data);
+    } catch (err) { if (!controller.signal.aborted) setPlanError(message(err)); }
+    finally { if (!controller.signal.aborted) setExplaining(false); }
+  }
+  function add(...stages: string[]) {
     pipelineBody(source, pipeline);
     const prefix = pipeline.trim().slice(0, -1).trimEnd();
-    change(prefix + (stageCount ? ',' : '') + '\n  ' + stage + '\n]');
+    change(prefix + (stageCount ? ',' : '') + '\n  ' + stages.join(',\n').replaceAll('\n', '\n  ') + '\n]');
     editor.current?.focus();
   }
   return <>
@@ -184,9 +260,14 @@ function Pipeline({ source, pipeline, edit, owner }: { source: Source; pipeline:
               onScroll={e => { if (syntax.current) { syntax.current.scrollTop = e.currentTarget.scrollTop; syntax.current.scrollLeft = e.currentTarget.scrollLeft; } }}
               onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void run(); } }} /></div>
           <div className="editor-status">{stageCount === null ? 'Editing JSON' : stageCount + (stageCount === 1 ? ' stage' : ' stages')}</div></div>
-        <div className="run-toolbar"><button className="primary" disabled={busy} onClick={run}><Icon name="play" />{busy ? 'Running…' : 'Run preview'}</button><kbd>Ctrl / ⌘ + Enter</kbd></div>
+        <div className="run-toolbar"><button className="primary" disabled={busy} onClick={run}><Icon name="play" />{busy ? 'Running…' : 'Run preview'}</button>
+          <button className="secondary" disabled={explaining} onClick={explain}><Icon name="search" />{explaining ? 'Explaining…' : 'Explain'}</button>
+          <kbd>Ctrl / ⌘ + Enter to preview</kbd></div>
+        <span role="status" className="sr-only">{explaining ? 'Running Explain.' : plan ? 'Execution plan ready.' : ''}</span>
+        {planError && <Alert>{planError}</Alert>}
+        {plan && <ExecutionPlan value={plan} />}
         {error && <Alert>{error}</Alert>}
-      </div><StageBuilder sample={result ?? sample} append={add} /></div>
+      </div><StageBuilder source={source} collections={collections} sample={result ?? sample} append={add} /></div>
     </section>
     <section className="work-panel output" aria-busy={busy || sampling}><header className="work-panel-title"><h2><Icon name="grid" />Output preview</h2>
       {result && <span className="sample-count" role="status">{result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'} · {result.fields.length} {result.fields.length === 1 ? 'field' : 'fields'}</span>}</header>

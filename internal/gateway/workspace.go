@@ -72,8 +72,8 @@ func (s *Server) enableWorkspace() {
 			controlError(w, err)
 			return
 		}
-		if !slices.Contains(source.Databases[in.Database], in.Collection) {
-			notConfigured(w)
+		if err := authorizePipeline(source.Databases[in.Database], in.Collection, in.Pipeline); err != nil {
+			controlError(w, err)
 			return
 		}
 		db, closeClient, err := s.openRecord(r.Context(), source, source.Databases)
@@ -85,6 +85,15 @@ func (s *Server) enableWorkspace() {
 		ctx, cancel := db.operationContext(r.Context())
 		defer cancel()
 		coll := db.client.Database(in.Database).Collection(in.Collection)
+		if r.Pattern == "POST /api/v1/admin/workspace/explain" {
+			stats, err := engine.Explain(ctx, coll, in.Pipeline, db.readPreference)
+			if err != nil {
+				operationError(w, ctx, err)
+				return
+			}
+			reply(w, http.StatusOK, stats)
+			return
+		}
 		fields, err := engine.Schema(ctx, coll, in.Pipeline)
 		if err != nil {
 			operationError(w, ctx, err)
@@ -141,6 +150,7 @@ func (s *Server) enableWorkspace() {
 		}
 		reply(w, 200, map[string]any{"fields": fields, "rows": rows})
 	}
+	s.mux.HandleFunc("POST /api/v1/admin/workspace/explain", run)
 	s.mux.HandleFunc("POST /api/v1/admin/workspace/preview", run)
 	s.mux.HandleFunc("POST /api/v1/admin/workspace/open", run)
 }
