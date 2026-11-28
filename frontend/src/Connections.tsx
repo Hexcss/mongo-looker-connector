@@ -79,7 +79,7 @@ export function Connections({ items, refresh }: { items: Connection[]; refresh: 
             <div className="chips">{collections.map(name => <code key={name}>{name}</code>)}</div></li>)}</ul>
           {!active.managed && <p className="hint"><Icon name="lock" />Edit this connection in the gateway deployment configuration.</p>}
         </div>
-        <footer className="detail-actions"><a className="secondary" href={'#preview?connection=' + encodeURIComponent(active.id)}><Icon name="terminal" />Open query preview</a>
+        <footer className="detail-actions"><a className="secondary" href={'#workspace?connection=' + encodeURIComponent(active.id)}><Icon name="terminal" />Open pipeline workspace</a>
           {active.managed && <><button className="secondary" onClick={() => setModal({ action: 'edit', source: active })}><Icon name="edit" />Edit connection</button>
             <button className="danger-link" onClick={() => setModal({ action: 'delete', source: active })}>Delete connection</button></>}</footer>
       </> : <Empty icon="layers" title="No connection selected">Choose a connection from the directory to inspect its namespaces.</Empty>}</section>

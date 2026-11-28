@@ -31,6 +31,8 @@ func OpenAdmin(raw, version, revision string, store catalog, verify func(context
 }
 func (s *Server) EnableAdmin(store catalog, verify func(context.Context, string) bool, ui http.Handler) {
 	s.admin = &administration{store: store, verify: verify}
+	s.enableWorkspace()
+	s.mux.HandleFunc("GET /api/v1/admin/me", s.accountInfo)
 	s.mux.Handle("GET /admin/", http.StripPrefix("/admin", ui))
 	s.mux.HandleFunc("GET /api/v1/admin/connections", s.adminConnections)
 	s.mux.HandleFunc("POST /api/v1/admin/connections", s.saveConnection)

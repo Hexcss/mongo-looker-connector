@@ -75,3 +75,75 @@ func TestHostedSessionLifecycle(t *testing.T) {
 		t.Fatal("expired session accepted")
 	}
 }
+
+func TestNamedFirestoreSessions(t *testing.T) {
+	if os.Getenv("FIRESTORE_EMULATOR_HOST") == "" {
+		t.Skip("requires Firestore emulator")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	db, err := firestore.NewClientWithDatabase(ctx, "mlc-test", fmt.Sprintf("team-%x", time.Now().UnixNano()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := Store{db: db}
+	owner, _, err := NewAccount("owner@example.invalid", RoleOwner, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.BootstrapAccount(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
+	another, _, _ := NewAccount("other@example.invalid", RoleOwner, true)
+	if err = store.BootstrapAccount(ctx, another); !errors.Is(err, ErrConflict) {
+		t.Fatal("second bootstrap accepted", err)
+	}
+	if _, err = store.Account(ctx, another.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatal("partial bootstrap", err)
+	}
+	a, _, _ := NewAccount("viewer@example.invalid", RoleViewer, false)
+	if err = store.CreateAccount(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CreateAccount(ctx, a); !errors.Is(err, ErrConflict) {
+		t.Fatal("duplicate account", err)
+	}
+	raw, _, err := store.MintAccountSession(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.SessionAccount(ctx, raw)
+	if err != nil || user.ID != a.ID || user.Operator {
+		t.Fatal("session identity", err)
+	}
+	old := a.Revision
+	if err = a.SetPassword("my-new-passphrase", false); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.UpdateAccount(ctx, a, old); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.UpdateAccount(ctx, a, old); !errors.Is(err, ErrConflict) {
+		t.Fatal("stale write", err)
+	}
+	if err = store.CheckSession(ctx, raw); !errors.Is(err, ErrUnauthorized) {
+		t.Fatal("stale session allowed", err)
+	}
+	raw, _, err = store.MintAccountSession(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old = a.Revision
+	a.Disabled = true
+	a.Revision = "disabled-revision"
+	if err = store.UpdateAccount(ctx, a, old); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CheckSession(ctx, raw); !errors.Is(err, ErrUnauthorized) {
+		t.Fatal("disabled session allowed", err)
+	}
+	if got, err := store.Accounts(ctx); err != nil || len(got) != 2 {
+		t.Fatal("account inventory", err)
+	}
+}

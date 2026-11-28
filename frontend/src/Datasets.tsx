@@ -3,6 +3,9 @@ import { api, message, useList } from './api';
 import type { Connection, Dataset, DatasetField, Result } from './api';
 import { ActionForm, Alert, Empty, Icon, PageHeading } from './ui';
 
+import type { Role } from './Accounts';
+import { SavedLaunch } from './Workbench';
+
 const types = ['TEXT', 'NUMBER', 'BOOLEAN', 'YEAR_MONTH_DAY_SECOND'];
 
 function DatasetEditor({ items, original, close, saved }: {
@@ -84,7 +87,7 @@ function DatasetPreview({ source }: {source: Dataset}) {
   </div></details>;
 }
 
-export function Datasets({ items, refreshKey }: { items: Connection[]; refreshKey: number }) {
+export function Datasets({ items, refreshKey, role }: { items: Connection[]; refreshKey: number; role: Role }) {
   const [changes, setChanges] = useState(0);
   const { list, error } = useList<Dataset>('datasets', refreshKey + changes);
   const [selected, setSelected] = useState('');
@@ -92,6 +95,10 @@ export function Datasets({ items, refreshKey }: { items: Connection[]; refreshKe
   const [deleting, setDeleting] = useState<Dataset | null>(null);
   const [notice, setNotice] = useState('');
   const current = list?.find(item => item.id === selected) ?? list?.[0];
+  if (role === 'viewer') return <><PageHeading title="Published datasets" description="Open a saved dataset with your reporting token." />
+    {error && <Alert>{error}</Alert>}<section className="panel">{!list ? <p className="loading">Loading datasets…</p> : !list.length ?
+      <Empty icon="layers" title="No datasets yet">Published datasets will appear here.</Empty> : <ul className="viewer-datasets">{list.map(item =>
+        <li key={item.id}><strong>{item.id}</strong><SavedLaunch id={item.id} /></li>)}</ul>}</section></>;
   return <>
     <PageHeading title="Managed datasets" description="Publish a saved query and choose the fields available to reports."
       action={<button className="primary" disabled={!items.length} onClick={() => setEditing('new')}><Icon name="plus" />Publish dataset</button>} />
@@ -109,8 +116,9 @@ export function Datasets({ items, refreshKey }: { items: Connection[]; refreshKe
           <details key={current.id}><summary>Saved pipeline</summary><pre className="pipeline-source">{current.pipelineText}</pre></details>
           <DatasetPreview key={current.id + ':' + current.revision} source={current} />
         </div><footer className="detail-actions">
+          <SavedLaunch key={current.id + current.revision} id={current.id} />
           <button className="secondary" aria-label={'Edit ' + current.id} onClick={() => setEditing(current)}><Icon name="edit" />Edit dataset</button>
-          <button className="danger-link" aria-label={'Delete ' + current.id} onClick={() => setDeleting(current)}>Delete dataset</button>
+          {role === 'owner' && <button className="danger-link" aria-label={'Delete ' + current.id} onClick={() => setDeleting(current)}>Delete dataset</button>}
         </footer></section></div>}
     {editing && <DatasetEditor items={items} original={editing === 'new' ? undefined : editing} close={() => setEditing(null)} saved={id => {
       setSelected(id); setEditing(null); setNotice('Published ' + id + '.'); setChanges(n => n + 1);

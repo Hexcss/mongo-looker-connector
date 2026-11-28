@@ -15,14 +15,14 @@ const DatasetConnection = "@datasets"
 const DatasetDatabase = "published"
 
 type Dataset struct {
-	ID               string          `json:"id" firestore:"-"`
-	ConnectionID     string          `json:"connectionId" firestore:"connectionId"`
-	Database         string          `json:"database" firestore:"database"`
-	Collection       string          `json:"collection" firestore:"collection"`
-	Pipeline         json.RawMessage `json:"pipeline" firestore:"-"`
-	Fields           []engine.Field  `json:"fields" firestore:"fields"`
-	Revision         string          `json:"revision" firestore:"revision"`
-	SourceGeneration string          `json:"-" firestore:"sourceGeneration"`
+	ID               string          `json:"id" firestore:"-" bson:"_id"`
+	ConnectionID     string          `json:"connectionId" firestore:"connectionId" bson:"connectionId"`
+	Database         string          `json:"database" firestore:"database" bson:"database"`
+	Collection       string          `json:"collection" firestore:"collection" bson:"collection"`
+	Pipeline         json.RawMessage `json:"pipeline" firestore:"-" bson:"pipeline"`
+	Fields           []engine.Field  `json:"fields" firestore:"fields" bson:"fields"`
+	Revision         string          `json:"revision" firestore:"revision" bson:"revision"`
+	SourceGeneration string          `json:"-" firestore:"sourceGeneration" bson:"sourceGeneration"`
 }
 
 // Firestore treats named byte slices such as json.RawMessage as arrays of
@@ -65,16 +65,23 @@ func (s *Store) GetDataset(ctx context.Context, id string) (Dataset, error) {
 	return decodeDataset(doc)
 }
 
-func (s *Store) SaveDataset(ctx context.Context, d Dataset) (Dataset, error) {
+func validateDataset(d *Dataset) error {
 	if !connectionID.MatchString(d.ID) || !connectionID.MatchString(d.ConnectionID) ||
 		!validName(d.Database) || !validName(d.Collection) || !validName(d.SourceGeneration) {
-		return Dataset{}, ErrInvalid
+		return ErrInvalid
 	}
 	if len(d.Pipeline) == 0 {
 		d.Pipeline = json.RawMessage("[]")
 	}
 	if err := engine.ValidateDataset(d.Pipeline, d.Fields); err != nil {
-		return Dataset{}, ErrInvalid
+		return ErrInvalid
+	}
+	return nil
+}
+
+func (s *Store) SaveDataset(ctx context.Context, d Dataset) (Dataset, error) {
+	if err := validateDataset(&d); err != nil {
+		return Dataset{}, err
 	}
 	previous := d.Revision
 	d.Revision = rand.Text()

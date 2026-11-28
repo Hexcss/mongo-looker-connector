@@ -1,16 +1,38 @@
 # Administration console
 
-The console runs inside the gateway image. In the sandbox, Google Cloud IAM authenticates the caller before the request reaches Cloud Run. Console actions additionally require a Google-signed assertion for this deployment. Only the configured administrators receive permission to mint it.
+The hosted console serves the pipeline workspace and team settings. In the sandbox the browser service invokes the private gateway with its own Cloud Run identity. The gateway authorizes every action using the current account and role.
 
-## Open the hosted console
+## Sign in to the hosted console
 
-Enable `hosted_console` in the gateway Terraform stack to deploy a separate HTTPS browser service. Its stable address is the `hosted_console_url` output. Bookmark that address to return to an active session. To sign in from your workstation, run the following once with an allowlisted gcloud account.
+Open the Terraform `hosted_console_url` and sign in with the email and password supplied by your workspace owner. New accounts must replace their temporary password in **My account**, then sign in again. Console passwords are 12–72 bytes. Sessions expire after one hour. Changing a password or role, resetting a password, or disabling the account invalidates its active sessions on the next request.
+
+### Initialize the sandbox owner
+
+An allowlisted Google Cloud operator can create the primary owner once. Use the operator's email as the initial sign-in, or add `--email` to assign another address.
+
+```sh
+PROJECT_ID=your-project-id OPERATOR_ACCOUNT=your-account python3 deploy/sandbox/bootstrap_owner.py
+```
+
+The command saves the temporary password in a new, owner-readable file at `~/.local/state/mongo-looker-connector/PROJECT_ID/owner-password`. Choose another destination with `--password-file`. A second run preserves the existing account and password. After choosing a personal password, remove the temporary password file.
+
+For operator recovery or setup from a browser, launch an operator session from the checkout.
 
 ```sh
 PROJECT_ID=your-project-id OPERATOR_ACCOUNT=your-account python3 deploy/sandbox/hosted_console.py
 ```
 
-The helper opens the hosted site in your browser and exits. To use another browser, add `--print-url` and open the single-use link within five minutes. Treat that link as a credential. The private gateway stores hashes of the ticket and session, validates the session when serving requests, and retains control of administration and reporting. Return to the hosted site root to sign out. If you receive an HTTP 401 or 403, mint a fresh sign-in link using the account in the administrator allowlist.
+In Cloud Shell, add `--print-url` and open the single-use link within five minutes. The gateway stores hashes of tickets and session identifiers. An expired link returns you to password sign-in. Open **Team members** to create the primary owner or reset a named account. Only an authenticated operator can reset the primary owner through this screen.
+
+### Manage team roles
+
+| Role | Console access |
+| --- | --- |
+| Owner | Manage connections, team membership, reporting tokens and datasets, including deletion. |
+| Editor | Browse configured source namespaces, build and preview pipelines, publish and update datasets, and open them in Looker Studio. |
+| Viewer | Browse published dataset IDs and open their Looker Studio setup links. |
+
+In **Team members**, choose **Add member**, enter an email and select a role. Share the generated temporary password privately. To revoke console access, disable the member. The primary owner always retains the owner role. For reports in Looker Studio, each reporting token separately determines which sources and fields the connector can read.
 
 ## Open the console through loopback
 
@@ -63,6 +85,13 @@ All admin API routes use `/api/v1/admin`. For writes and preview, send JSON and 
 
 | Method | Path | Request or result |
 | --- | --- | --- |
+| GET | `/me` | Current role, account email, operator flag and password-change requirement |
+| POST | `/bootstrap-owner` | Operator only. Supply `email` to initialize the primary owner and receive its temporary password. |
+| GET | `/users` | List team members and their roles and status |
+| POST | `/users` | Create a member with `email` and `role`; returns `user` and `temporaryPassword` |
+| PUT | `/users/{id}` | Set `role` and `disabled`. Requires an owner. |
+| POST | `/users/{id}/reset-password` | Supply `{}` to issue a temporary replacement |
+| POST | `/password` | Supply `currentPassword` and `newPassword` for your own account |
 | GET | `/connections` | List IDs, namespaces, management source, and revision |
 | POST | `/connections` | Create with `id`, `databases`, and `uri` |
 | PUT | `/connections/{id}` | Supply the current `revision`, updated `databases`, and optionally a replacement `uri` |
