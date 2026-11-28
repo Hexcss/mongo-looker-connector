@@ -1,0 +1,81 @@
+x-image: &gateway-image
+  image: ${MLC_SELFHOST_IMAGE:-mlc-selfhost:local}
+  build:
+    context: ../..
+x-meta: &mongo-config
+  MLC_CONTROL_MONGO_DATABASE: mlc_gateway
+  MLC_CONTROL_MONGO_URI_FILE: /run/secrets/control_uri
+  MLC_CONTROL_MONGO_KEY_FILE: /run/secrets/key
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: bootstrap
+    # Read the owner-only file before the official entrypoint drops privileges.
+    entrypoint: ["/bin/bash", "-ec", 'export MONGO_INITDB_ROOT_PASSWORD="$$(cat /run/secrets/root_password)"; exec docker-entrypoint.sh mongod']
+    volumes:
+      - "${MLC_STATE_DIR}/root-password:/run/secrets/root_password:ro,z"
+      - metadata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--host", "mongo", "--eval", "quit(db.adminCommand({ping:1}).ok ? 0 : 1)"]
+      interval: 3s
+      timeout: 4s
+      retries: 40
+
+  provision:
+    image: mongo:7
+    profiles: [init]
+    entrypoint: [mongosh, --quiet, --nodb, --file, /init/provision.js]
+    volumes:
+      - ./provision.js:/init/provision.js:ro,z
+      - "${MLC_STATE_DIR}/root-password:/run/secrets/root_password:ro,z"
+      - "${MLC_STATE_DIR}/control-password:/run/secrets/control_password:ro,z"
+      - "${MLC_STATE_DIR}/reporter-password:/run/secrets/reporter_password:ro,z"
+    depends_on:
+      mongo: {condition: service_healthy}
+
+  init-owner:
+    <<: *gateway-image
+    profiles: [init]
+    user: "${MLC_INSTALL_UID}:${MLC_INSTALL_GID}"
+    command: [init-owner]
+    environment:
+      <<: *mongo-config
+      MLC_OWNER_EMAIL_FILE: /run/secrets/owner_email
+      MLC_OWNER_PASSWORD_FILE: /run/secrets/owner_password
+      MLC_SAMPLE_REPORTER_URI_FILE: /run/secrets/reporter_uri
+    volumes:
+      - "${MLC_STATE_DIR}/control-uri:/run/secrets/control_uri:ro,z"
+      - "${MLC_STATE_DIR}/encryption-key:/run/secrets/key:ro,z"
+      - "${MLC_STATE_DIR}/owner-email:/run/secrets/owner_email:ro,z"
+      - "${MLC_STATE_DIR}/initial-owner-password:/run/secrets/owner_password:ro,z"
+      - "${MLC_STATE_DIR}/reporter-uri:/run/secrets/reporter_uri:ro,z"
+
+  gateway:
+    <<: *gateway-image
+    user: "${MLC_INSTALL_UID}:${MLC_INSTALL_GID}"
+    restart: unless-stopped
+    environment:
+      <<: *mongo-config
+      MLC_LOOKER_CONNECTOR_ID: ${MLC_LOOKER_CONNECTOR_ID:-}
+      MLC_LOOKER_GATEWAY_ORIGIN: ${MLC_LOOKER_GATEWAY_ORIGIN:-}
+    volumes:
+      - "${MLC_STATE_DIR}/control-uri:/run/secrets/control_uri:ro,z"
+      - "${MLC_STATE_DIR}/encryption-key:/run/secrets/key:ro,z"
+    depends_on:
+      mongo: {condition: service_healthy}
+    ports:
+      - "127.0.0.1:${MLC_GATEWAY_PORT:-8092}:8080"
+
+  console:
+    <<: *gateway-image
+    restart: unless-stopped
+    environment:
+      MLC_STANDALONE_UPSTREAM: http://gateway:8080
+    depends_on: [gateway]
+    ports:
+      - "127.0.0.1:${MLC_CONSOLE_PORT:-8091}:8080"
+
+volumes:
+  metadata:

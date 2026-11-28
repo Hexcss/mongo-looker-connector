@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+- Build an aggregation in the hosted query workspace with a stage builder, field suggestions and a typed preview. Save it as a dataset and open its preconfigured Looker Studio source.
+- Sign in directly, change passwords and manage owner, editor and viewer accounts. New self-hosted installations initialize a MongoDB catalog and generate the primary owner's first-use password.
+- Configure the generic Looker Studio connector with a registered gateway URL and a field-scoped reporting key. The private IAM connector remains available for existing reports.
+
 ## [0.6.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.6.0) · 2026-11-28
 
 - Refresh the connector card, reporting-token help and native Looker Studio setup controls.

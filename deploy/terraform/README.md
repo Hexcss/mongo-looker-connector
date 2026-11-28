@@ -171,3 +171,16 @@ curl -fsS "$base/query" -H 'Content-Type: application/json' \
 Run `deploy/sandbox/drift` with the same image, invokers and connection tfvars to verify the deployment. To test the Terraform configuration locally with the Terraform version pinned in CI (1.17.2), initialize the gateway with `-backend=false` and run `terraform -chdir=deploy/terraform/gateway test -test-directory=plan-tests`. These tests use a mocked provider and remote state. Run `python3 -B deploy/sandbox/console_test.py` for the loopback session and request checks.
 
 Both databases, the managed credential secret and the Cloud Run service have deletion protection. The bucket also has Terraform destruction protection. The database, image storage, state object versions, and requests can incur charges while the sandbox exists.
+
+## Configure the workspace handoff
+
+Deploy the generic Apps Script package with the console's public HTTPS origin registered. Supply both values alongside the existing gateway stack variables when applying Terraform and checking drift.
+
+```hcl
+looker_handoff = {
+  connector_id   = "your-apps-script-deployment-id"
+  gateway_origin = "https://your-console.example.org"
+}
+```
+
+The public console proxies reporting requests to the private gateway with its service identity. Report authors need a scoped reporting key and a registered gateway URL. Owners initialize their first named account with the [administration guide](../../docs/administration.md). [Generic connector packaging](../../docs/looker-studio.md#use-a-gateway-url-and-reporting-key)

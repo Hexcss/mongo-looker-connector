@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react';
 import { message } from './api';
 
 export function Icon({ name }: { name: string }) {
+  if (name === 'user' || name === 'users') return <svg className="icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20v-2a6 6 0 0 1 12 0v2"/>{name === 'users' && <path d="M16 5a3.5 3.5 0 0 1 0 7m1 2a5 5 0 0 1 4 5v1"/>}</svg>;
   return <svg className="icon" aria-hidden="true"><use href={'./icons.svg#' + name} /></svg>;
 }
 

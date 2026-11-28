@@ -15,6 +15,8 @@ import (
 // Firestore TTL clears abandoned records. Every authorization checks expiration
 // directly because TTL deletion is asynchronous.
 type hostedLogin struct {
+	AccountID  string    `firestore:"accountId,omitempty"`
+	Revision   string    `firestore:"accountRevision,omitempty"`
 	ExpiresAt  time.Time `firestore:"expiresAt"`
 	SessionEnd time.Time `firestore:"sessionEnd,omitempty"`
 }
@@ -89,12 +91,42 @@ func (s *Store) ExchangeTicket(ctx context.Context, ticket string) (string, time
 	return session, end, err
 }
 
-func (s *Store) CheckSession(ctx context.Context, session string) error {
+func (s *Store) MintAccountSession(ctx context.Context, a Account) (string, time.Time, error) {
+	if a.ID == "" || a.Revision == "" || a.Disabled || a.Operator || !ValidRole(a.Role) {
+		return "", time.Time{}, ErrUnauthorized
+	}
+	end := time.Now().Add(time.Hour)
+	raw := hostedKey()
+	doc, _ := s.loginDoc("session", raw)
+	_, err := doc.Create(ctx, hostedLogin{ExpiresAt: end, AccountID: a.ID, Revision: a.Revision})
+	return raw, end, err
+}
+
+func (s *Store) SessionAccount(ctx context.Context, session string) (Account, error) {
 	doc, err := s.loginDoc("session", session)
 	if err != nil {
-		return err
+		return Account{}, err
 	}
-	_, err = activeLogin(doc.Get(ctx))
+	row, err := activeLogin(doc.Get(ctx))
+	if err != nil {
+		return Account{}, err
+	}
+	// Operator sessions issued before named accounts have no account binding.
+	if row.AccountID == "" && row.Revision == "" {
+		return Account{Role: RoleOwner, Operator: true}, nil
+	}
+	if row.AccountID == "" || row.Revision == "" {
+		return Account{}, ErrUnauthorized
+	}
+	a, err := s.Account(ctx, row.AccountID)
+	if errors.Is(err, ErrNotFound) || (err == nil && (a.Disabled || a.Revision != row.Revision)) {
+		return Account{}, ErrUnauthorized
+	}
+	return a, err
+}
+
+func (s *Store) CheckSession(ctx context.Context, session string) error {
+	_, err := s.SessionAccount(ctx, session)
 	return err
 }
 

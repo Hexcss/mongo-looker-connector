@@ -78,3 +78,55 @@ export async function verifyDatasets(page, origin) {
     }
   }
 }
+
+// Open only the sandbox fixture dataset. Intercept the final Google URL before navigating away.
+export async function verifyWorkbench(page, origin) {
+  const id = 'workbench-' + randomUUID();
+  const admin = origin + '/api/v1/admin/';
+  const pattern = 'https://lookerstudio.google.com/datasources/create?**';
+  const intercept = route => route.fulfill({ contentType: 'text/plain', body: 'Verified the connector setup URL.' });
+  await page.context().route(pattern, intercept);
+  try {
+    await page.getByRole('link', { name: 'Pipeline workspace', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Connection', exact: true }).selectOption('demo');
+    await page.getByRole('combobox', { name: 'Database', exact: true }).selectOption('mlc-sandbox');
+    await page.getByRole('combobox', { name: 'Collection', exact: true }).selectOption('orders');
+    const pipeline = '[{"$sort":{"amount":-1}},{"$limit":1},{"$project":{"_id":1,"amount":1}}]';
+    await page.getByLabel('Aggregation pipeline').fill(pipeline);
+    await page.getByRole('button', { name: 'Run preview' }).click();
+    await page.getByRole('region', { name: 'Preview results' }).getByRole('cell', { name: '42' }).waitFor();
+    await page.getByRole('button', { name: 'Fields', exact: true }).click();
+    await page.getByRole('region', { name: 'Preview fields' }).getByRole('cell', { name: 'NUMBER' }).waitFor();
+    await page.getByRole('button', { name: 'Open in Looker Studio' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Dataset ID').fill(id);
+    async function handoff(click) {
+      const [tab] = await Promise.all([page.waitForEvent('popup'), click()]);
+      try {
+        await tab.waitForURL(pattern);
+        const url = new URL(tab.url());
+        const config = JSON.parse(url.searchParams.get('connectorConfig'));
+        assert.equal(config.collection, id);
+        assert.equal(decodeURIComponent(config.connectionId), '@datasets');
+        assert.ok(url.searchParams.get('connectorId'));
+        assert.ok(!Object.hasOwn(config, 'pipeline'));
+        return url.href;
+      } finally { await tab.close(); }
+    }
+    const created = await handoff(() => dialog.getByRole('button', { name: 'Save and open' }).click());
+    await page.getByRole('link', { name: 'Datasets', exact: true }).click();
+    await page.getByRole('button', { name: id, exact: true }).click();
+    const reopened = await handoff(() => page.getByRole('button', { name: 'Open in Looker Studio' }).click());
+    assert.equal(created, reopened);
+    console.log('Verified typed output, publishing from the workbench, and reopening the managed dataset through the Looker Studio handoff.');
+  } finally {
+    await page.context().unroute(pattern, intercept);
+    const catalog = await page.request.get(admin + 'datasets');
+    assert.equal(catalog.status(), 200);
+    const item = (await catalog.json()).datasets.find(dataset => dataset.id === id);
+    if (item) {
+      const removed = await page.request.delete(admin + 'datasets/' + id, { headers: { Origin: origin, 'X-MLC-Request': 'console' }, data: { revision: item.revision } });
+      assert.equal(removed.status(), 204, 'Could not clean up this workbench fixture');
+    }
+  }
+}
