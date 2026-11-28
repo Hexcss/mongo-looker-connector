@@ -29,7 +29,7 @@ The fields and their order stay fixed across empty results, source additions and
 
 In **Access tokens**, select the dataset and the fields the recipient may read. For example, grant `orderId` and `sales` to an aggregate report and only `orderId` to a directory report. A dataset grant alone gives no access to the underlying collection. Issue a separate raw collection grant only to users who should query it directly.
 
-In the installed Looker Studio connector, enter the reporting token and select **@datasets → published → order-amounts**. Only granted fields appear in the schema. A granted date field also enables the connector's date-range control. Existing raw-collection data sources use their original selections. [Looker Studio setup](looker-studio.md)
+In the installed Looker Studio connector, enter the reporting token and select **Published datasets → order-amounts**. Only granted fields appear in the schema. A granted date field also enables the connector's date-range control. Existing raw-collection data sources use their original selections. [Looker Studio setup](looker-studio.md)
 
 For HTTP clients, use the standard schema and query endpoints with the same virtual namespace. This request filters the published output and preserves the requested column order.
 

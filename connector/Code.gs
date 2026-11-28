@@ -4,6 +4,9 @@ const keyProperty = 'mlc.reportingKey';
 const noSourceDate = '$none'; // MongoDB date paths cannot start with '$'.
 let invocationIdToken;
 
+const english_ = (en, es) => en;
+const spanish_ = (en, es) => es;
+
 function fail_(message) {
   cc.newUserError().setText(message).throwException();
 }
@@ -27,7 +30,7 @@ function iamReason_(response) {
   return 'HTTP_ERROR';
 }
 
-function request_(stage, url, headers, data) {
+function request_(stage, url, headers, data, text) {
   const options = {headers, escaping: false, followRedirects: false, muteHttpExceptions: true};
   if (data !== undefined) {
     options.method = 'post';
@@ -38,11 +41,12 @@ function request_(stage, url, headers, data) {
     return UrlFetchApp.fetch(url, options);
   } catch (_) {
     authWarning_(stage, 0, 'FETCH_FAILED');
-    fail_('Apps Script could not contact ' + stage + '. Check the deployed URL allowlist and HTTPS fetch permission.');
+    fail_(text('Apps Script could not contact ' + stage + '. Check the deployed URL allowlist and HTTPS fetch permission.',
+      'Apps Script no pudo contactar con ' + stage + '. Comprueba las URL permitidas y el permiso para hacer solicitudes HTTPS.'));
   }
 }
 
-function gateway_(path, data, key) {
+function gateway_(path, data, key, text = english_) {
   if (!invocationIdToken) {
     const url = 'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/' + MLC_INVOKER + ':generateIdToken';
     // package.py validates and pins the complete service-account email in Installation.gs.
@@ -50,43 +54,53 @@ function gateway_(path, data, key) {
     const response = request_('iam', url, {
       Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
       'x-goog-user-project': project
-    }, {audience: MLC_GATEWAY_URL, includeEmail: true});
+    }, {audience: MLC_GATEWAY_URL, includeEmail: true}, text);
     if (response.getResponseCode() !== 200) {
       const status = response.getResponseCode();
       const reason = iamReason_(response);
       authWarning_('iam', status, reason);
-      fail_('Google could not authorize the reporting identity (HTTP ' + status + ', ' + reason +
-        '). Ask the operator to check the reporting allowlist and IAM Credentials API.');
+      const details = ' (HTTP ' + status + ', ' + reason + '). ';
+      fail_(text('Google could not authorize the reporting identity' + details + 'Ask the operator to check the reporting allowlist and IAM Credentials API.',
+        'Google no pudo autorizar la identidad de los informes' + details + 'Pide al administrador que revise los permisos de acceso y la API IAM Credentials.'));
     }
     invocationIdToken = JSON.parse(response.getContentText()).token;
   }
   return request_('gateway', MLC_GATEWAY_URL + '/api/v1/' + path, {
     'X-Serverless-Authorization': 'Bearer ' + invocationIdToken,
     Authorization: 'Bearer ' + key
-  }, data);
+  }, data, text);
 }
 
-function read_(path, data, pipeline, optionalSourceSchema = false) {
+function read_(path, data, pipeline, {optionalSourceSchema = false, text = english_} = {}) {
   const key = PropertiesService.getUserProperties().getProperty(keyProperty);
-  if (!key) fail_('Authorize this connector with a reporting token.');
+  if (!key) fail_(text('Authorize this connector with a reporting token.',
+    'Autoriza este conector con un token de acceso a los informes.'));
   // pipeline is a validated JSON array. Preserve BSON int64 literals and compound sort key order.
   if (pipeline !== undefined) data = JSON.stringify(data).slice(0, -1) + ',"pipeline":' + pipeline + '}';
-  const response = gateway_(path, data, key);
+  const response = gateway_(path, data, key, text);
   const status = response.getResponseCode();
-  if (status === 401 || status === 403) fail_('Access denied. Check the reporting token and Cloud Run invoker permissions.');
-  if (status === 404) fail_('The selected connection or namespace is unavailable. Reconfigure the data source.');
+  if (status === 401 || status === 403) fail_(text('Access denied. Check the reporting token and Cloud Run invoker permissions.',
+    'Acceso denegado. Comprueba el token de acceso y los permisos para invocar el servicio de Cloud Run.'));
+  if (status === 404) fail_(text('The selected connection or namespace is unavailable. Reconfigure the data source.',
+    'El origen seleccionado ya no está disponible. Vuelve a configurar la fuente de datos.'));
   // A narrow custom projection can fit even when the unprojected sample exceeds schema limits.
   if (status === 413 && optionalSourceSchema) return {fields: []};
-  if (pipeline !== undefined && status === 400) fail_('The gateway rejected the aggregation pipeline. Check the read-only stages, operators and field names.');
-  if (pipeline !== undefined && status === 413) fail_('The aggregation exceeds a gateway limit. Shorten the pipeline or reduce its output.');
-  if (pipeline !== undefined && status === 502) fail_('MongoDB could not run the aggregation. Check the stage arguments and source field types.');
-  if (status === 413) fail_('This report exceeds a gateway limit. Select fewer fields or a shorter date range.');
-  if (status !== 200) fail_('The reporting gateway returned HTTP ' + status + '.');
+  if (pipeline !== undefined && status === 400) fail_(text('The gateway rejected the aggregation pipeline. Check the read-only stages, operators and field names.',
+    'La pasarela rechazó el pipeline de agregación. Revisa las etapas de solo lectura, los operadores y los nombres de los campos.'));
+  if (pipeline !== undefined && status === 413) fail_(text('The aggregation exceeds a gateway limit. Shorten the pipeline or reduce its output.',
+    'La agregación supera un límite de la pasarela. Acorta el pipeline o reduce el resultado.'));
+  if (pipeline !== undefined && status === 502) fail_(text('MongoDB could not run the aggregation. Check the stage arguments and source field types.',
+    'MongoDB no pudo ejecutar la agregación. Revisa los argumentos de las etapas y los tipos de los campos de origen.'));
+  if (status === 413) fail_(text('This report exceeds a gateway limit. Select fewer fields or a shorter date range.',
+    'El informe supera un límite de la pasarela. Selecciona menos campos o un intervalo de fechas más corto.'));
+  if (status !== 200) fail_(text('The reporting gateway returned HTTP ', 'La pasarela de informes devolvió HTTP ') + status + '.');
   return JSON.parse(response.getContentText());
 }
 
 function getAuthType() {
-  return cc.newAuthTypeResponse().setAuthType(cc.AuthType.KEY).build();
+  return cc.newAuthTypeResponse().setAuthType(cc.AuthType.KEY)
+    .setHelpUrl('https://github.com/Hexcss/mongo-looker-connector/blob/167f44fa033a023a149e401f98d9b25bf2ce1f94/docs/looker-studio.md#sign-in-with-a-reporting-token')
+    .build();
 }
 
 function validKey_(key) {
@@ -113,20 +127,34 @@ function resetAuth() {
   PropertiesService.getUserProperties().deleteProperty(keyProperty);
 }
 
-function configValues_(saved) {
+function configValues_(saved, text = english_) {
   const params = {};
   for (const id of ['connectionId', 'database', 'collection', 'dateField', 'sourceDateField', 'queryMode']) {
-    if (saved && saved[id]) params[id] = decodeURIComponent(saved[id]);
+    if (saved && saved[id]) {
+      try {
+        params[id] = decodeURIComponent(saved[id]);
+      } catch (_) {
+        fail_(text('A saved selection is invalid. Reconfigure the data source.', 'Una opción guardada no es válida. Vuelve a configurar la fuente de datos.'));
+      }
+    }
   }
-  if (params.queryMode && !['collection', 'custom'].includes(params.queryMode)) fail_('Choose an available query mode.');
+  if (params.connectionId === '@datasets') {
+    if (params.database && params.database !== 'published') {
+      fail_(text('The selected database is unavailable for published datasets.', 'La base de datos seleccionada no está disponible para conjuntos de datos publicados.'));
+    }
+    params.database = 'published';
+  }
+  if (params.queryMode && !['collection', 'custom'].includes(params.queryMode)) fail_(text('Choose an available query mode.',
+    'Selecciona un modo de consulta disponible.'));
   if (params.queryMode === 'custom') {
-    if (params.connectionId === '@datasets') fail_('Published datasets use the pipeline configured by their administrator.');
+    if (params.connectionId === '@datasets') fail_(text('Published datasets use the pipeline configured by their administrator.',
+      'Los conjuntos de datos publicados utilizan el pipeline configurado por su administrador.'));
     params.pipeline = saved.pipeline;
   }
   return params;
 }
 
-function pipeline_(params) {
+function pipeline_(params, text = english_) {
   if (params.queryMode !== 'custom') return undefined;
   let valid = false;
   try {
@@ -134,7 +162,8 @@ function pipeline_(params) {
   } catch (_) {
     // Keep query text out of error messages.
   }
-  if (!valid) fail_('Enter the MongoDB aggregation pipeline as a JSON array of stages.');
+  if (!valid) fail_(text('Enter the MongoDB aggregation pipeline as a JSON array of stages.',
+    'Introduce el pipeline de agregación de MongoDB como un array JSON de etapas.'));
   return params.pipeline;
 }
 
@@ -147,58 +176,105 @@ function selectableDate_(field) {
     field.name.split('.').every(part => part && !part.startsWith('$'));
 }
 
-function sourceDates_(params, optional = false) {
-  return read_('schema', namespace_(params), undefined, optional).fields.filter(selectableDate_).map(field => field.name);
+function sourceDates_(params, optional = false, text = english_) {
+  return read_('schema', namespace_(params), undefined, {optionalSourceSchema: optional, text}).fields.filter(selectableDate_).map(field => field.name);
 }
 
 function getConfig(request) {
-  const params = configValues_(request.configParams);
+  const text = /^es(?:[-_]|$)/i.test(request.languageCode || '') ? spanish_ : english_;
+  const params = configValues_(request.configParams, text);
+  const published = params.connectionId === '@datasets';
   const config = cc.getConfig();
   config.setIsSteppedConfig(true);
-  function choose(id, label, values, dynamic, display = value => value) {
-    if (!values.length) fail_('No available options for ' + label + '. Check the token grants and source data.');
+
+  function read(path, data, pipeline) {
+    return read_(path, data, pipeline, {text});
+  }
+  function choose(id, label, values, dynamic, help, display = value => value) {
+    if (!values.length) fail_(text('No options available for ' + label + '. Check the token grants and source data.',
+      'No hay opciones disponibles para «' + label + '». Comprueba los permisos del token y los datos de origen.'));
     const select = config.newSelectSingle().setId(id).setName(label).setIsDynamic(dynamic);
+    if (help) select.setHelpText(help);
     values.forEach(value => select.addOption(config.newOptionBuilder().setLabel(display(value)).setValue(encodeURIComponent(value))));
-    if (params[id] && !values.includes(params[id])) fail_('The saved ' + label + ' is unavailable. Reconfigure the data source.');
+    if (params[id] && !values.includes(params[id])) fail_(text('The saved selection for ' + label + ' is unavailable. Reconfigure the data source.',
+      'La opción guardada para «' + label + '» ya no está disponible. Vuelve a configurar la fuente de datos.'));
     return Boolean(params[id]);
   }
-  const connections = read_('connections').connections;
-  if (!choose('connectionId', 'Connection', connections, true)) return config.build();
-  const databases = read_('connections/' + encodeURIComponent(params.connectionId) + '/databases').databases;
-  if (!choose('database', 'Database', databases, true)) return config.build();
-  const collections = read_('collections?connectionId=' + encodeURIComponent(params.connectionId) +
-    '&database=' + encodeURIComponent(params.database)).collections;
-  if (!choose('collection', 'Collection', collections, true)) return config.build();
-  if (params.connectionId !== '@datasets' && !choose('queryMode', 'Query mode', ['collection', 'custom'], true,
-    mode => mode === 'collection' ? 'Collection' : 'Custom aggregation')) return config.build();
-  if (params.queryMode === 'custom') {
-    config.newTextArea().setId('pipeline').setName('MongoDB aggregation pipeline (JSON)')
-      .setIsDynamic(true).setAllowOverride(false)
-      .setHelpText('Enter a JSON array of read-only stages. Include a stable sort if row order matters.')
-      .setPlaceholder('[{"$sort":{"amount":-1,"_id":1}},{"$limit":10}]');
-    if (params.pipeline === undefined || (typeof params.pipeline === 'string' && !params.pipeline.trim())) return config.build();
-    const output = read_('schema', namespace_(params), pipeline_(params)).fields;
-    if (!output.length) fail_('The pipeline returned no sampled fields. Edit it to return at least one row with fields.');
-    const filterByDate = Boolean(params.sourceDateField && params.sourceDateField !== noSourceDate);
-    const dates = sourceDates_(params, !filterByDate);
-    if (dates.length || filterByDate) {
-      if (!choose('sourceDateField', 'Filter source rows by date (UTC)', [noSourceDate, ...dates], true,
-        name => name === noSourceDate ? 'No date filter' : name)) return config.build();
-    }
-    config.setDateRangeRequired(filterByDate);
+  function finish(fields, dateRequired) {
+    const count = fields.length;
+    const kind = published
+      ? text(count === 1 ? 'published field' : 'published fields', count === 1 ? 'campo publicado' : 'campos publicados')
+      : text(count === 1 ? 'sampled field' : 'sampled fields', count === 1 ? 'campo de la muestra' : 'campos de la muestra');
+    const names = fields.slice(0, 5).map(field => {
+      const chars = Array.from(field.name.replace(/\s+/g, ' '));
+      return chars.length <= 48 ? chars.join('') : chars.slice(0, 47).join('') + '…';
+    });
+    if (count > names.length) names.push('…');
+    config.newInfo().setId('fieldSummary').setText(count + ' ' + kind + ' · ' + names.join(', '));
+    config.setDateRangeRequired(dateRequired);
     config.setIsSteppedConfig(false);
     return config.build();
   }
-  const fields = read_('schema', namespace_(params)).fields;
-  if (!fields.length) fail_('The collection has no sampled fields. Choose a collection containing documents.');
+
+  const connections = read('connections').connections;
+  if (!choose('connectionId', text('Data source', 'Origen de datos'), connections, true,
+    text('Your reporting token determines which connections and published datasets you can use.',
+      'Tu token de acceso determina qué conexiones y conjuntos de datos publicados puedes utilizar.'),
+    id => id === '@datasets' ? text('Published datasets', 'Conjuntos de datos publicados') : id)) return config.build();
+  if (!published) {
+    const databases = read('connections/' + encodeURIComponent(params.connectionId) + '/databases').databases;
+    if (!choose('database', text('Database', 'Base de datos'), databases, true)) return config.build();
+  }
+  const collections = read('collections?connectionId=' + encodeURIComponent(params.connectionId) +
+    '&database=' + encodeURIComponent(params.database)).collections;
+  const collectionLabel = published ? text('Published dataset', 'Conjunto de datos publicado') : text('Collection', 'Colección');
+  if (!choose('collection', collectionLabel, collections, true, published && text(
+    'Your administrator maintains the pipeline and grants access to its fields.',
+    'El administrador mantiene el pipeline y concede acceso a sus campos.'))) return config.build();
+  if (!published && !choose('queryMode', text('Query mode', 'Modo de consulta'), ['collection', 'custom'], true,
+    text('Use the fields in your collection documents, or shape the results with a read-only pipeline.',
+      'Utiliza los campos de los documentos de la colección o define el resultado con un pipeline de solo lectura.'),
+    mode => mode === 'collection' ? text('Collection documents', 'Documentos de la colección') :
+      text('Custom aggregation', 'Agregación personalizada'))) return config.build();
+  if (params.queryMode === 'custom') {
+    config.newTextArea().setId('pipeline')
+      .setName(text('MongoDB aggregation pipeline (JSON)', 'Pipeline de agregación de MongoDB (JSON)'))
+      .setIsDynamic(true).setAllowOverride(false)
+      .setHelpText(text('Enter a JSON array of stages. The example returns the ten highest amounts and uses _id to order ties.',
+        'Introduce un array JSON de etapas. El ejemplo devuelve los diez importes más altos y usa _id para ordenar los empates.'))
+      .setPlaceholder('[\n  {"$sort": {"amount": -1, "_id": 1}},\n  {"$limit": 10}\n]');
+    if (params.pipeline === undefined || (typeof params.pipeline === 'string' && !params.pipeline.trim())) return config.build();
+    const output = read('schema', namespace_(params), pipeline_(params, text)).fields;
+    if (!output.length) fail_(text('The pipeline returned no sampled fields. Edit it to return at least one row with fields.',
+      'La muestra del pipeline no contiene campos. Modifica las etapas para que devuelvan al menos un documento con campos.'));
+    const filterByDate = Boolean(params.sourceDateField && params.sourceDateField !== noSourceDate);
+    const dates = sourceDates_(params, !filterByDate, text);
+    if (dates.length || filterByDate) {
+      if (!choose('sourceDateField', text('Filter source rows by date (UTC)', 'Filtrar documentos de origen por fecha (UTC)'), [noSourceDate, ...dates], true,
+        text('The report date range filters this source field before the pipeline runs.',
+          'El intervalo de fechas del informe se aplica a este campo de origen antes de ejecutar el pipeline.'),
+        name => name === noSourceDate ? text('No date filter', 'Sin filtro de fecha') : name)) return config.build();
+    }
+    return finish(output, filterByDate);
+  }
+  const fields = read('schema', namespace_(params)).fields;
+  if (!fields.length) {
+    if (published) fail_(text('No fields are available for this dataset. Ask the administrator to check your field grants.',
+      'Este conjunto de datos no tiene campos disponibles. Pide al administrador que revise tus permisos de acceso a los campos.'));
+    fail_(text('The collection has no sampled fields. Choose a collection containing documents.',
+      'La muestra de la colección no contiene campos. Selecciona una colección que contenga documentos.'));
+  }
   const dates = fields.filter(selectableDate_).map(field => field.name);
   if (dates.length) {
-    const selected = choose('dateField', 'Report date field (UTC)', dates, dates.length > 1);
+    const help = published
+      ? text('The report date range filters the published results after the saved pipeline runs.',
+        'El intervalo de fechas del informe filtra los resultados publicados después de ejecutar el pipeline guardado.')
+      : text('The report date range filters documents by this BSON date field.',
+        'El intervalo de fechas del informe filtra los documentos según este campo de fecha BSON.');
+    const selected = choose('dateField', text('Report date field (UTC)', 'Campo de fecha del informe (UTC)'), dates, dates.length > 1, help);
     if (dates.length > 1 && !selected) return config.build();
   }
-  config.setDateRangeRequired(dates.length > 0);
-  config.setIsSteppedConfig(false);
-  return config.build();
+  return finish(fields, dates.length > 0);
 }
 
 // Looker field IDs permit ASCII letters, digits and underscores. Keep original labels.

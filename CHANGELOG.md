@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.6.0) · 2026-11-28
+
+- Refresh the connector card, reporting-token help and native Looker Studio setup controls.
+- Open published datasets directly, configure collections and custom pipelines in English or Spanish, and review the available output fields before connecting.
+
 ## [0.5.0](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.5.0) · 2026-11-27
 
 - Enter a read-only MongoDB aggregation pipeline while configuring a raw collection data source in Looker Studio. The connector discovers fields from the aggregation output and uses the saved pipeline for chart queries.

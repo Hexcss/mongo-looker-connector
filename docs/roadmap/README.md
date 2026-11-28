@@ -9,6 +9,7 @@ The first milestone proves that a company can query its own MongoDB data through
 | **v0.3 · Looker Studio** | [v0.3.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.3.0) | A user authenticates through the generic Apps Script connector, browses available collections, and builds a report with a date range. |
 | **v0.4 · Managed datasets** | [v0.4.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.4.0) | An administrator publishes a virtual dataset with a reusable pipeline, stable schema, field restrictions, filters, and permission-aware caching. |
 | **v0.5 · Custom aggregations in Looker Studio** | [v0.5.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.5.0) | A report author enters a read-only pipeline for an authorized collection during data source setup and charts fields from its output. |
+| **v0.6 · Looker Studio setup** | [v0.6.0 release record](https://github.com/Hexcss/mongo-looker-connector/releases/tag/v0.6.0) | Authors can configure an authorized source in English or Spanish and review the fields it provides before connecting. |
 | **v1.0 · Self-hosted release** | Planned | A new operator can install and upgrade the gateway, configure supported providers and use Looker Studio from the web console without source edits. |
 | **v1.x · Advanced analytics** | Planned | Prioritize the visual aggregation builder, expanded filter pushdown, explain plans, shared caching, monitoring, and private networking against operator needs. |
 
