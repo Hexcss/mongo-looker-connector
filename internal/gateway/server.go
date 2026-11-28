@@ -82,7 +82,7 @@ func (s *Server) listDatabases(w http.ResponseWriter, r *http.Request) {
 		s.datasetNamespaces(w, r, true)
 		return
 	}
-	c, closeClient, err := s.resolve(r, r.PathValue("id"), "", "")
+	c, closeClient, err := s.resolve(r, r.PathValue("id"), "", "", nil)
 	if err != nil {
 		controlError(w, err)
 		return
@@ -116,7 +116,7 @@ func (s *Server) listCollections(w http.ResponseWriter, r *http.Request) {
 		s.datasetNamespaces(w, r, false)
 		return
 	}
-	c, closeClient, err := s.resolve(r, params.Get("connectionId"), db, "")
+	c, closeClient, err := s.resolve(r, params.Get("connectionId"), db, "", nil)
 	if err != nil {
 		controlError(w, err)
 		return
@@ -245,7 +245,7 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		s.datasetReport(w, r, req)
 		return
 	}
-	c, closeClient, err := s.resolve(r, req.connection, req.database, req.collection)
+	c, closeClient, err := s.resolve(r, req.connection, req.database, req.collection, req.pipeline)
 	if err != nil {
 		controlError(w, err)
 		return

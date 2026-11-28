@@ -1,4 +1,4 @@
-// Package engine executes bounded read-only reports against one configured collection.
+// Package engine executes bounded read-only reports against configured MongoDB collections.
 package engine
 
 import (
@@ -60,9 +60,58 @@ func parsePipeline(raw json.RawMessage) (mongo.Pipeline, error) {
 	return pipeline, nil
 }
 
+// LookupCollections returns every foreign collection named by a validated pipeline.
+// All supported joins use literal collection names in the database of the source.
+func LookupCollections(raw json.RawMessage) ([]string, error) {
+	stages, err := parsePipeline(raw)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, stage := range stages {
+		if stage[0].Key == "$lookup" {
+			for _, arg := range stage[0].Value.(bson.D) {
+				if arg.Key == "from" {
+					names = append(names, arg.Value.(string))
+				}
+			}
+		}
+	}
+	return names, nil
+}
+
+func validLookup(doc bson.D) bool {
+	// parseValue already rejects duplicate keys. Exactly these four strings
+	// describe an equality join; subpipelines and foreign databases are excluded.
+	if len(doc) != 4 {
+		return false
+	}
+	for _, arg := range doc {
+		value, ok := arg.Value.(string)
+		if !ok || value == "" {
+			return false
+		}
+		switch arg.Key {
+		case "from":
+			if strings.TrimSpace(value) != value || strings.ContainsAny(value, "$\x00") {
+				return false
+			}
+		case "localField", "foreignField", "as":
+			if !validDatasetPath(value) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func validStage(stage bson.E) bool {
 	doc, isDoc := stage.Value.(bson.D)
 	switch stage.Key {
+	case "$lookup":
+		return validLookup(doc)
 	case "$match", "$addFields", "$set":
 		return isDoc
 	case "$project":

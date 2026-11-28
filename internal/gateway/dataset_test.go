@@ -54,11 +54,11 @@ func TestDatasetWarmCacheFollowsLivePermissions(t *testing.T) {
 	}
 	defer client.Disconnect(context.Background())
 	srv := Server{mux: http.NewServeMux(), connections: map[string]connection{
-		"demo": {client: client, generation: "source-generation", databases: map[string][]string{"analytics": {"orders"}}},
+		"demo": {client: client, generation: "source-generation", databases: map[string][]string{"analytics": {"orders", "zones"}}},
 	}}
 	srv.routes("dev", "unknown")
 	d := control.Dataset{ID: "revenue", ConnectionID: "demo", Database: "analytics", Collection: "orders",
-		Pipeline: json.RawMessage(`[{"$match":{"sales":42}}]`), SourceGeneration: "source-generation", Revision: "v1",
+		Pipeline: json.RawMessage(`[{"$lookup":{"from":"zones","localField":"_id","foreignField":"_id","as":"zone"}},{"$match":{"sales":42}}]`), SourceGeneration: "source-generation", Revision: "v1",
 		Fields: []engine.Field{{Name: "_id", Type: "TEXT"}, {Name: "sales", Type: "NUMBER"}}}
 	grant := func(fields ...string) []control.Grant {
 		return []control.Grant{{ConnectionID: control.DatasetConnection, Database: control.DatasetDatabase, Collection: d.ID, Generation: d.Revision, Fields: fields}}
@@ -112,6 +112,18 @@ func TestDatasetWarmCacheFollowsLivePermissions(t *testing.T) {
 	request("mlc_narrow", query, prefix+`,"fields":["_id"],"pipeline":[{"$match":{"sales":42}}]}`, 400, "")
 	request("mlc_wide", query, prefix+`,"fields":["_id"],"filters":{"sales":42}}`, 200, "MISS")
 	request("mlc_wide", query, prefix+`,"fields":["_id"],"filters":{"sales":42}}`, 200, "HIT")
+	// Shrink the live allowlist without rotating the source. Existing grants,
+	// discovery, schema, and warm cached rows must all respect the joined source.
+	srv.connections["demo"].databases["analytics"] = []string{"orders"}
+	request("mlc_wide", query, ids, 404, "")
+	request("mlc_wide", "/api/v1/schema", prefix+"}", 404, "")
+	if got := string(request("mlc_wide", "/api/v1/connections", "", 200, "")); got != `{"connections":[]}` {
+		t.Fatal(got)
+	}
+	if _, err := srv.datasetGrant(context.Background(), scope{DatasetID: d.ID, Fields: []string{"_id"}}); err != control.ErrNotFound {
+		t.Errorf("could grant unavailable joined dataset: %v", err)
+	}
+	srv.connections["demo"].databases["analytics"] = []string{"orders", "zones"}
 	delete(store.tokens, "mlc_wide")
 	request("mlc_wide", query, ids, 401, "")
 	store.dataset.Revision = "v2"
