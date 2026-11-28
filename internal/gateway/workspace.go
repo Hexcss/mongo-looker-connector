@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"os"
@@ -105,12 +107,27 @@ func (s *Server) enableWorkspace() {
 				operationError(w, ctx, err)
 				return
 			}
-			_, err = s.admin.store.SaveDataset(ctx, control.Dataset{ID: in.ID, ConnectionID: source.ID, Database: in.Database, Collection: in.Collection, SourceGeneration: source.Generation, Pipeline: in.Pipeline, Fields: fields})
+			definition := control.Dataset{ID: in.ID, ConnectionID: source.ID, Database: in.Database, Collection: in.Collection, SourceGeneration: source.Generation, Pipeline: in.Pipeline, Fields: fields}
+			status := http.StatusCreated
+			_, err = s.admin.store.SaveDataset(ctx, definition)
+			if errors.Is(err, control.ErrConflict) {
+				existing, lookupErr := s.admin.store.GetDataset(ctx, in.ID)
+				if lookupErr != nil {
+					controlError(w, lookupErr)
+					return
+				}
+				if sameWorkspaceDataset(existing, definition) {
+					status, err = http.StatusOK, nil
+				} else {
+					fail(w, 409, "dataset_exists", "This ID belongs to a different dataset. Choose another ID or reopen it from Datasets.")
+					return
+				}
+			}
 			if err != nil {
 				controlError(w, err)
 				return
 			}
-			reply(w, 201, map[string]string{"datasetId": in.ID, "url": target})
+			reply(w, status, map[string]string{"datasetId": in.ID, "url": target})
 			return
 		}
 		rows := [][]any{}
@@ -126,4 +143,12 @@ func (s *Server) enableWorkspace() {
 	}
 	s.mux.HandleFunc("POST /api/v1/admin/workspace/preview", run)
 	s.mux.HandleFunc("POST /api/v1/admin/workspace/open", run)
+}
+
+// JSON object key order matters in MongoDB expressions such as compound sorts.
+func sameWorkspaceDataset(a, b control.Dataset) bool {
+	var left, right bytes.Buffer
+	return a.ConnectionID == b.ConnectionID && a.Database == b.Database && a.Collection == b.Collection &&
+		a.SourceGeneration == b.SourceGeneration && slices.Equal(a.Fields, b.Fields) &&
+		json.Compact(&left, a.Pipeline) == nil && json.Compact(&right, b.Pipeline) == nil && bytes.Equal(left.Bytes(), right.Bytes())
 }

@@ -33,7 +33,7 @@ func TestPublishWorkspaceSelection(t *testing.T) {
 	}
 	raw, projected := batch(bson.M{"amount": 42}), batch(bson.M{"c0": 42})
 	opts := options.Client()
-	opts.Deployment = drivertest.NewMockDeployment(raw, raw, raw, projected, raw, projected)
+	opts.Deployment = drivertest.NewMockDeployment(raw, raw, raw, projected, raw, projected, raw, projected)
 	client, err := mongo.Connect(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -84,6 +84,9 @@ func TestPublishWorkspaceSelection(t *testing.T) {
 	if u.Host != "lookerstudio.google.com" || u.Query().Get("connectorId") != "example-deployment" || !reflect.DeepEqual(cfg, map[string]string{"collection": "orders-daily", "connectionId": "%40datasets", "gatewayOrigin": "https%3A%2F%2Fgateway.example"}) {
 		t.Fatal(handoff)
 	}
-	call("POST", "open", body, 409)
+	if call("POST", "open", body, 200) != result {
+		t.Fatal("retry changed saved link")
+	}
+	call("POST", "open", strings.Replace(body, `"$limit":1`, `"$limit":2`, 1), 409)
 	call("POST", "preview", strings.Replace("{"+data+"}", "orders", "private", 1), 404)
 }

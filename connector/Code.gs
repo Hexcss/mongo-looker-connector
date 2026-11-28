@@ -3,7 +3,10 @@ const cc = DataStudioApp.createCommunityConnector();
 const keyProperty = 'mlc.reportingKey';
 const noSourceDate = '$none'; // MongoDB date paths cannot start with '$'.
 let invocationIdToken;
-const genericGateway = typeof MLC_GATEWAY_ORIGINS !== 'undefined';
+// Apps Script can evaluate Code.gs before Installation.gs.
+function usesGatewayURL_() {
+  return typeof MLC_GATEWAY_ORIGINS !== 'undefined';
+}
 const activeGateway = 'mlc.activeGateway';
 let selectedGateway;
 
@@ -60,7 +63,7 @@ function request_(stage, url, headers, data, text) {
 }
 
 function gateway_(path, data, key, text = english_, origin = selectedGateway) {
-  if (genericGateway) {
+  if (usesGatewayURL_()) {
     if (!origin || !MLC_GATEWAY_ORIGINS.includes(origin)) fail_(text('Select a registered gateway.', 'Selecciona una pasarela registrada.'));
     return request_('gateway', origin + '/api/v1/' + path, {'X-MLC-Token': key}, data, text);
   }
@@ -89,14 +92,14 @@ function gateway_(path, data, key, text = english_, origin = selectedGateway) {
 }
 
 function read_(path, data, pipeline, {optionalSourceSchema = false, text = english_} = {}) {
-  const key = PropertiesService.getUserProperties().getProperty(genericGateway ? originKey_(selectedGateway) : keyProperty);
+  const key = PropertiesService.getUserProperties().getProperty(usesGatewayURL_() ? originKey_(selectedGateway) : keyProperty);
   if (!key) fail_(text('Authorize this connector with a reporting token.',
     'Autoriza este conector con un token de acceso a los informes.'));
   // pipeline is a validated JSON array. Preserve BSON int64 literals and compound sort key order.
   if (pipeline !== undefined) data = JSON.stringify(data).slice(0, -1) + ',"pipeline":' + pipeline + '}';
   const response = gateway_(path, data, key, text);
   const status = response.getResponseCode();
-  if (genericGateway && (status === 401 || status === 403)) fail_(text('Access denied. Check the reporting token for this gateway.',
+  if (usesGatewayURL_() && (status === 401 || status === 403)) fail_(text('Access denied. Check the reporting token for this gateway.',
     'Acceso denegado. Comprueba el token de acceso para esta pasarela.'));
   if (status === 401 || status === 403) fail_(text('Access denied. Check the reporting token and Cloud Run invoker permissions.',
     'Acceso denegado. Comprueba el token de acceso y los permisos para invocar el servicio de Cloud Run.'));
@@ -117,7 +120,7 @@ function read_(path, data, pipeline, {optionalSourceSchema = false, text = engli
 }
 
 function getAuthType() {
-  if (genericGateway) return cc.newAuthTypeResponse().setAuthType(cc.AuthType.PATH_KEY).build();
+  if (usesGatewayURL_()) return cc.newAuthTypeResponse().setAuthType(cc.AuthType.PATH_KEY).build();
   return cc.newAuthTypeResponse().setAuthType(cc.AuthType.KEY)
     .setHelpUrl('https://github.com/Hexcss/mongo-looker-connector/blob/167f44fa033a023a149e401f98d9b25bf2ce1f94/docs/looker-studio.md#sign-in-with-a-reporting-token')
     .build();
@@ -134,7 +137,7 @@ function validKey_(key, origin) {
 }
 
 function setCredentials(request) {
-  if (genericGateway) {
+  if (usesGatewayURL_()) {
     const creds = request.pathKey || {};
     const origin = registeredOrigin_(creds.path);
     if (!origin || !validKey_(creds.key, origin)) return {errorCode: 'INVALID_CREDENTIALS'};
@@ -149,16 +152,31 @@ function setCredentials(request) {
 }
 
 function isAuthValid() {
-  if (genericGateway) {
+  if (usesGatewayURL_()) {
     const props = PropertiesService.getUserProperties();
-    const origin = registeredOrigin_(props.getProperty(activeGateway));
-    return Boolean(origin && validKey_(props.getProperty(originKey_(origin)), origin));
+    const recent = registeredOrigin_(props.getProperty(activeGateway));
+    // Google supplies no data source configuration here. One expired credential
+    // must not lock out data sources bound to another usable gateway.
+    const candidates = [recent, ...MLC_GATEWAY_ORIGINS.filter(origin => origin !== recent)];
+    let unavailable;
+    for (const origin of candidates) {
+      if (!origin) continue;
+      const key = props.getProperty(originKey_(origin));
+      if (!key) continue;
+      try {
+        if (validKey_(key, origin)) return true;
+      } catch (err) {
+        unavailable = err;
+      }
+    }
+    if (unavailable) throw unavailable;
+    return false;
   }
   return validKey_(PropertiesService.getUserProperties().getProperty(keyProperty));
 }
 
 function resetAuth() {
-  if (genericGateway) {
+  if (usesGatewayURL_()) {
     const props = PropertiesService.getUserProperties();
     for (const name of props.getKeys()) if (name.startsWith('mlc.reportingKey:')) props.deleteProperty(name);
     props.deleteProperty(activeGateway);
@@ -256,7 +274,7 @@ function getConfig(request) {
     return config.build();
   }
 
-  if (genericGateway) {
+  if (usesGatewayURL_()) {
     const props = PropertiesService.getUserProperties();
     const origins = MLC_GATEWAY_ORIGINS.filter(origin => props.getProperty(originKey_(origin)));
     if (!choose('gatewayOrigin', text('Reporting gateway', 'Pasarela de informes'), origins, true)) return config.build();
@@ -311,6 +329,14 @@ function getConfig(request) {
       'La muestra de la colección no contiene campos. Selecciona una colección que contenga documentos.'));
   }
   const dates = fields.filter(selectableDate_).map(field => field.name);
+  if (published && usesGatewayURL_()) {
+    if (dates.length) {
+      choose('dateField', text('Report date field (UTC)', 'Campo de fecha del informe (UTC)'), [noSourceDate, ...dates], true,
+        text('Optionally filter the saved results by a report date range.', 'Puedes filtrar los resultados guardados por un intervalo de fechas.'),
+        name => name === noSourceDate ? text('No date filter', 'Sin filtro de fecha') : name);
+    }
+    return finish(fields, Boolean(params.dateField && params.dateField !== noSourceDate && dates.includes(params.dateField)));
+  }
   if (dates.length) {
     const help = published
       ? text('The report date range filters the published results after the saved pipeline runs.',
@@ -339,14 +365,14 @@ function schemaField_(field) {
 
 function getSchema(request) {
   const params = configValues_(request.configParams);
-  if (genericGateway) selectedGateway = registeredOrigin_(params.gatewayOrigin);
+  if (usesGatewayURL_()) selectedGateway = registeredOrigin_(params.gatewayOrigin);
   const fields = read_('schema', namespace_(params), pipeline_(params)).fields;
   return {schema: fields.map(schemaField_)};
 }
 
 function getData(request) {
   const params = configValues_(request.configParams);
-  if (genericGateway) selectedGateway = registeredOrigin_(params.gatewayOrigin);
+  if (usesGatewayURL_()) selectedGateway = registeredOrigin_(params.gatewayOrigin);
   const body = namespace_(params);
   const pipeline = pipeline_(params);
   const fields = read_('schema', body, pipeline).fields;
@@ -360,7 +386,8 @@ function getData(request) {
     return field;
   });
   // Looker may batch fields. The author controls ordering in custom aggregations.
-  if (pipeline === undefined) body.pipeline = [{$sort: {_id: 1}}];
+  const workspaceDataset = usesGatewayURL_() && params.connectionId === '@datasets';
+  if (pipeline === undefined && !workspaceDataset) body.pipeline = [{$sort: {_id: 1}}];
   body.fields = schema.map(field => field.label);
   let dateField;
   if (pipeline !== undefined) {
@@ -370,7 +397,7 @@ function getData(request) {
         fail_('Refresh the data source and select an available source date field and report date range.');
       }
     }
-  } else {
+  } else if (!workspaceDataset || (params.dateField && params.dateField !== noSourceDate)) {
     const dates = fields.filter(selectableDate_).map(field => field.name);
     dateField = params.dateField || (request.dateRange && dates.length === 1 && dates[0]);
     if (dateField && (!dates.includes(dateField) || !request.dateRange)) {
