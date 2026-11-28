@@ -209,7 +209,7 @@ func initMongoOwner(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		_, err = store.SaveConnection(ctx, "sample", map[string][]string{"analytics": {"orders"}}, uri, "")
+		_, err = store.SaveConnection(ctx, "sample", map[string][]string{"analytics": {"orders", "shipping_zones"}}, uri, "")
 		if err != nil && !errors.Is(err, control.ErrConflict) {
 			return errors.New("cannot initialize sample connection")
 		}

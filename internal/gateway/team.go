@@ -66,7 +66,7 @@ func consoleAccess(a control.Account, r *http.Request) bool {
 	case "GET":
 		return path == "/api/v1/admin/connections"
 	case "POST":
-		return path == "/api/v1/admin/preview" || path == "/api/v1/admin/datasets" || path == "/api/v1/admin/workspace/preview" || path == "/api/v1/admin/workspace/open"
+		return path == "/api/v1/admin/preview" || path == "/api/v1/admin/datasets" || path == "/api/v1/admin/workspace/preview" || path == "/api/v1/admin/workspace/explain" || path == "/api/v1/admin/workspace/open"
 	case "PUT":
 		return strings.HasPrefix(path, "/api/v1/admin/datasets/") && connectionID.MatchString(strings.TrimPrefix(path, "/api/v1/admin/datasets/"))
 	}

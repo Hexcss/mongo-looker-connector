@@ -90,3 +90,7 @@ Owners and editors can preview and publish from the console. Send a JSON object 
 To publish, add a unique `id` to the same request and send it to `POST /api/v1/admin/workspace/open`. The gateway samples the pipeline, validates the declared output and creates a managed dataset. A successful response is HTTP 201 with `datasetId` and `url`. Repeating the same publication returns its link with HTTP 200. Reusing an ID for a different definition returns HTTP 409. All console roles can retrieve a saved link with `GET /api/v1/admin/workspace/looker/{id}`. Opening the link requires a separate reporting grant to read fields and rows.
 
 The public console origin accepts scoped reporting keys in `X-MLC-Token` on the connections, databases, collections, schema and query endpoints. The private gateway checks the key and current grants on each operation. [Team roles and password initialization](administration.md)
+
+### Explain a workspace pipeline
+
+Owners and editors can send the same JSON body as preview to `POST /api/v1/admin/workspace/explain`. Explain executes a bounded aggregation using the source database's `executionStats` verbosity. The response includes `documentsExamined`, `keysExamined`, `indexesUsed`, and `rowLimit`. Missing statistics are represented as `null`. Index details come from the executed plan. The gateway returns a summary and keeps the raw plan private. [Join and Explain example](query.md#join-two-collections-and-inspect-an-execution-plan)

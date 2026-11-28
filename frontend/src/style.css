@@ -287,3 +287,14 @@ textarea.pipeline-input::selection { color: #fff; background: #4b6f64; }
 @media (max-width: 630px) {
   .syntax-view, textarea.pipeline-input { white-space: pre-wrap; overflow-wrap: anywhere; }
 }
+
+.stage-builder .join-unwind { display: flex; flex-direction: row; align-items: center; gap: 7px; }
+.join-unwind input { width: 15px; height: 15px; margin: 0; accent-color: #28654a; }
+.execution-plan { padding: 11px 13px; border: 1px solid var(--line); border-radius: 5px; }
+.execution-plan h3 { margin: 0; font-size: 14px; }
+.execution-plan p { margin-top: 2px; color: var(--muted); font-size: 12px; }
+.execution-plan dl { margin: 10px 0 0; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.execution-plan dt { font-size: 12px; color: var(--muted); }
+.execution-plan dd { margin: 3px 0 0; font: 600 14px var(--mono); overflow-wrap: anywhere; }
+.execution-plan ul { list-style: none; padding: 0; margin: 0; }
+.execution-plan code { font: 500 12px var(--mono); }

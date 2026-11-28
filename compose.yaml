@@ -21,7 +21,7 @@ services:
       mongo:
         condition: service_healthy
     environment:
-      GATEWAY_CONNECTIONS: '[{"id":"demo","uriEnv":"MONGODB_URI","databases":{"analytics":["orders"]}}]'
+      GATEWAY_CONNECTIONS: '[{"id":"demo","uriEnv":"MONGODB_URI","databases":{"analytics":["orders","shipping_zones"]}}]'
       MONGODB_URI: mongodb://reporter:local-demo-only@mongo:27017/analytics
     ports:
       - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
